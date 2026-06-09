@@ -399,19 +399,25 @@ function gameReducer(state, action) {
 
       let updatedResidents = state.residents
       let residentChangeMsg = null
-      if (task._residentAssignee) {
-        const target = findResidentById(updatedResidents, task._residentAssignee)
+      let finalAssignee = task._residentAssignee
+      if (!finalAssignee && task.title) {
+        const nameMatch = updatedResidents.find(r => task.title.includes(r.name))
+        if (nameMatch) finalAssignee = nameMatch.id
+      }
+      if (finalAssignee) {
+        const target = findResidentById(updatedResidents, finalAssignee)
         if (target) {
           const residentCoinBoost = 10 + Math.floor(Math.random() * 15)
-          updatedResidents = updateResident(updatedResidents, 'id', task._residentAssignee, {
-            reputation: Math.min(999, target.reputation + 5),
+          const repBoost = task.type === 'patrol' ? 8 : 5
+          updatedResidents = updateResident(updatedResidents, 'id', finalAssignee, {
+            reputation: Math.min(999, target.reputation + repBoost),
             coins: target.coins + residentCoinBoost,
             taskCompleted: (target.taskCompleted || 0) + 1,
           })
-          if (newRelationships[task._residentAssignee] !== undefined) {
-            newRelationships[task._residentAssignee] = Math.min(100, newRelationships[task._residentAssignee] + 10)
+          if (newRelationships[finalAssignee] !== undefined) {
+            newRelationships[finalAssignee] = Math.min(100, newRelationships[finalAssignee] + 10)
           }
-          residentChangeMsg = ` · 🏠 ${target.name}：声望+5、金币+${residentCoinBoost}、协助次数+1、好感+10`
+          residentChangeMsg = ` · 🏠 ${target.name}：声望+${repBoost}、金币+${residentCoinBoost}、协助次数+1、好感+10`
         }
       }
 
@@ -439,7 +445,15 @@ function gameReducer(state, action) {
       return {
         ...state,
         activeTasks: state.activeTasks.filter(t => t.id !== action.payload),
-        completedTasks: [...state.completedTasks, { ...task, completedAt: Date.now(), completedDay: state.day }],
+        completedTasks: [...state.completedTasks, {
+          ...task,
+          completedAt: Date.now(),
+          completedDay: state.day,
+          _residentAssignee: finalAssignee || task._residentAssignee || null,
+          _residentName: finalAssignee
+            ? (findResidentById(updatedResidents, finalAssignee)?.name || null)
+            : (task._residentAssignee ? findResidentById(state.residents, task._residentAssignee)?.name : null),
+        }],
         reputation: newRep,
         coins: state.coins + task.reward.coins,
         totalHelpTasks: helpCount,
@@ -570,12 +584,29 @@ function gameReducer(state, action) {
       if (!state.limitedEvent) return state
       const reward = state.limitedEvent.reward
       const finishedEvent = { ...state.limitedEvent, completedAt: Date.now(), completedDay: state.day }
+      const limitedHistoryRecord = {
+        id: generateId(),
+        actionType: 'limited_completed',
+        eventId: 'limited_' + state.limitedEvent.id,
+        icon: state.limitedEvent.icon || '🎊',
+        title: '限时活动：' + state.limitedEvent.name,
+        description: state.limitedEvent.description || '',
+        day: state.limitedEvent.startedDay || state.day,
+        completedDay: state.day,
+        targetResident: null,
+        chosenChoice: `完成奖励：声望+${reward.reputation}、金币+${reward.coins}`,
+        chosenFlag: 'limited_done',
+        requires: null,
+        followUp: null,
+        effect: { reputation: reward.reputation, coins: reward.coins, relationshipBoost: 0 },
+        _residentRepBoost: 0,
+      }
       return {
         ...state,
         limitedEvent: null,
         reputation: state.reputation + reward.reputation,
         coins: state.coins + reward.coins,
-        dailyEventHistory: [...state.dailyEventHistory, { type: 'limited', event: finishedEvent }],
+        dailyEventHistory: [...state.dailyEventHistory, limitedHistoryRecord],
         activityLog: [...state.activityLog, { type: 'success', message: `完成限时活动「${finishedEvent.name}」：声望+${reward.reputation}，金币+${reward.coins}`, time: Date.now() }],
       }
     }
@@ -883,18 +914,37 @@ function gameReducer(state, action) {
         const newTaskCount = 2 + Math.floor(Math.random() * 3)
         const newTasks = []
         for (let i = 0; i < newTaskCount; i++) {
+          const realResidentsForTask = updatedResidents.filter(r => r.id && r.id.startsWith('npc_'))
+          const pickResident = realResidentsForTask.length > 0
+            ? getRandomElement(realResidentsForTask)
+            : null
           const templates = [
-            { type: 'help', t: `帮${getRandomElement(NPC_NAMES)}${getRandomElement(['送东西', '照看宠物', '浇花', '搬重物', '取快递'])}` },
-            { type: 'market', t: `跳蚤市场 - 出售${getRandomElement(['闲置电器', '儿童玩具', '手工艺品', '旧衣物'])}` },
-            { type: 'dispute', t: '处理邻里纠纷' },
-            { type: 'patrol', t: '组队安全巡逻' },
+            { type: 'help', actionPool: ['送东西', '照看宠物', '浇花', '搬重物', '取快递', '代买东西'] },
+            { type: 'market', actionPool: ['闲置电器', '儿童玩具', '手工艺品', '旧衣物'] },
+            { type: 'dispute', actionPool: ['噪音', '宠物乱跑', '车位', '垃圾堆放'] },
+            { type: 'patrol', actionPool: ['夜间巡逻', '防诈骗宣传', '消防通道检查'] },
           ]
           const tmpl = getRandomElement(templates)
+          const needsResident = (tmpl.type === 'help' || tmpl.type === 'dispute') && pickResident
+          const action = getRandomElement(tmpl.actionPool)
+          let title
+          if (needsResident) {
+            title = tmpl.type === 'dispute'
+              ? `协助${pickResident.name}处理${action}纠纷`
+              : `帮${pickResident.name}${action}`
+          } else if (tmpl.type === 'market') {
+            title = `跳蚤市场 - 出售${action}`
+          } else if (tmpl.type === 'patrol') {
+            title = pickResident ? `和${pickResident.name}一起${action}` : `组队${action}`
+          } else {
+            const fallbackName = pickResident ? pickResident.name : getRandomElement(NPC_NAMES)
+            title = `帮${fallbackName}${action}`
+          }
           newTasks.push({
             id: generateId(),
             type: tmpl.type,
-            title: tmpl.t,
-            description: '邻居有事需要帮忙，热心住户可以联系',
+            title,
+            description: title + ' - 热心住户可以联系',
             reward: {
               reputation: tmpl.type === 'patrol' ? 35 : tmpl.type === 'dispute' ? 25 + Math.floor(Math.random() * 15) : 10 + Math.floor(Math.random() * 20),
               coins: tmpl.type === 'market' ? 30 + Math.floor(Math.random() * 40) : 15 + Math.floor(Math.random() * 20),
@@ -903,6 +953,7 @@ function gameReducer(state, action) {
             requireTeam: tmpl.type === 'patrol' && Math.random() < 0.4,
             generatedAt: Date.now(),
             generatedDay: newDay,
+            _residentAssignee: needsResident ? pickResident.id : (tmpl.type === 'patrol' && pickResident ? pickResident.id : null),
           })
         }
 
@@ -978,6 +1029,42 @@ function gameReducer(state, action) {
         if (!saved) return state
         const parsed = JSON.parse(saved)
         const baseResidents = buildInitialResidents()
+
+        const normalizeDailyEventHistory = (raw) => {
+          if (!Array.isArray(raw)) return []
+          return raw.map(item => {
+            if (item.actionType && item.title && item.icon) return item
+            let inner = null, at = 'daily_handled', isExpired = false
+            if (item.event && typeof item.event === 'object') inner = item.event
+            if (item.type === 'daily_expired' || inner?.expired) { at = 'daily_expired'; isExpired = true }
+            else if (item.type === 'limited') { at = 'limited_completed' }
+            if (!inner) inner = item
+            return {
+              id: inner.id || item.id || generateId(),
+              actionType: at,
+              eventId: inner.id || ('evt_' + Math.random().toString(36).slice(2, 9)),
+              icon: inner.icon || (at === 'limited_completed' ? '🎊' : '📢'),
+              title: at === 'limited_completed'
+                ? ('限时活动：' + (inner.name || '社区活动'))
+                : (inner.title || '社区事件'),
+              description: inner.description || '',
+              day: inner.day || inner.triggeredDay || inner.startedDay || 1,
+              handledDay: inner.handledDay || inner.completedDay || inner.expiredDay || day,
+              expiredDay: isExpired ? (inner.expiredDay || (inner.day || 1) + 1) : null,
+              targetResident: inner.targetResident || null,
+              chosenChoice: inner.chosenChoice || (at === 'limited_completed' && inner.reward
+                ? `完成奖励：声望+${inner.reward.reputation || 0}、金币+${inner.reward.coins || 0}`
+                : (isExpired ? '⏰ 超时未处理' : '已处理')),
+              chosenFlag: inner.chosenFlag || null,
+              requires: inner.requires || null,
+              followUp: inner.followUp || null,
+              effect: inner.effect || { reputation: 0, coins: 0, relationshipBoost: 0 },
+              _residentRepBoost: inner._residentRepBoost || 0,
+              expired: isExpired,
+            }
+          }).filter(x => x && x.title && x.icon)
+        }
+
         const mergedResidents = Array.isArray(parsed.residents) && parsed.residents.length > 0
           ? baseResidents.map(base => {
             const savedR = parsed.residents.find(x => x.id === base.id)
@@ -996,11 +1083,13 @@ function gameReducer(state, action) {
             ...t,
             progress: t.progress ?? 0,
             id: t.id || generateId(),
+            _residentAssignee: t._residentAssignee || null,
           }))
           : []
         const mergedTasks = Array.isArray(parsed.tasks) && parsed.tasks.length > 0
-          ? parsed.tasks.map(t => ({ ...t, id: t.id || generateId() }))
+          ? parsed.tasks.map(t => ({ ...t, id: t.id || generateId(), _residentAssignee: t._residentAssignee || null }))
           : [...INITIAL_TASKS].map(t => ({ ...t, id: t.id || generateId() }))
+        const normalizedEventHistory = normalizeDailyEventHistory(parsed.dailyEventHistory)
 
         const merged = {
           ...initialState,
@@ -1014,7 +1103,7 @@ function gameReducer(state, action) {
           activityLog: Array.isArray(parsed.activityLog) ? parsed.activityLog : [],
           achievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
           reportHistory: Array.isArray(parsed.reportHistory) ? parsed.reportHistory : [],
-          dailyEventHistory: Array.isArray(parsed.dailyEventHistory) ? parsed.dailyEventHistory : [],
+          dailyEventHistory: normalizedEventHistory,
           eventFlags: parsed.eventFlags || {},
           facilities: Array.isArray(parsed.facilities) && parsed.facilities.length > 0
             ? parsed.facilities.map((f, i) => ({ ...FACILITIES[i], votes: f.votes || 0 }))
@@ -1029,7 +1118,7 @@ function gameReducer(state, action) {
         }
         if (!merged.dailyEvent || merged.dailyEvent?.handled) {
           const pickFrom = DAILY_EVENTS.filter(e => !e.requires
-            && !merged.dailyEventHistory.slice(-5).some(h => h.event?.id === e.id))
+            && !merged.dailyEventHistory.slice(-8).some(h => h.eventId === e.id))
           const pool = pickFrom.length > 0 ? pickFrom : DAILY_EVENTS.filter(e => !e.requires)
           if (pool.length > 0) {
             merged.dailyEvent = {
