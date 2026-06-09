@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useGame } from '../context/GameContext'
-import { BUILDINGS, AVATARS } from '../data/gameData'
+import { BUILDINGS, AVATARS, NPC_RESIDENTS } from '../data/gameData'
 
 export default function Lobby({ onStart }) {
   const { state, dispatch } = useGame()
@@ -9,6 +9,7 @@ export default function Lobby({ onStart }) {
   const [buildingId, setBuildingId] = useState(1)
   const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [adminCode, setAdminCode] = useState('')
+  const [residentLookup, setResidentLookup] = useState(null)
 
   const handleCreate = () => {
     if (!name.trim()) {
@@ -34,6 +35,8 @@ export default function Lobby({ onStart }) {
   const avgRelationship = Object.values(state.relationships).length > 0
     ? Math.round(Object.values(state.relationships).reduce((a, b) => a + b, 0) / Object.values(state.relationships).length)
     : 0
+
+  const getResidentById = (rid) => state.residents.find(r => r.id === rid) || NPC_RESIDENTS.find(r => r.id === rid)
 
   if (!state.player) {
     return (
@@ -248,6 +251,48 @@ export default function Lobby({ onStart }) {
             )}
           </div>
 
+          {state.dailyEvent.targetResident && getResidentById(state.dailyEvent.targetResident) && (() => {
+            const r = getResidentById(state.dailyEvent.targetResident)
+            const rel = state.relationships?.[r.id] || 30
+            return (
+              <div className="mb-16" style={{
+                padding: '10px 14px',
+                background: 'rgba(255,255,255,0.75)',
+                borderRadius: '10px',
+                border: '1px solid rgba(0,0,0,0.06)',
+              }}>
+                <div className="flex gap-12" style={{ alignItems: 'center' }}>
+                  <span className="avatar avatar-sm">{r.avatar}</span>
+                  <div style={{ flex: 1 }}>
+                    <div className="text-sm font-bold">
+                      事件关联住户：{r.name}
+                      <span className="text-light" style={{ fontWeight: 'normal', marginLeft: '6px', fontSize: '0.75rem' }}>
+                        （{r.buildingName}）
+                      </span>
+                    </div>
+                    <div className="text-xs text-light mt-4">
+                      与你当前好感度：
+                      <span style={{
+                        color: rel >= 80 ? '#db2777' : rel >= 50 ? '#8b5cf6' : rel >= 30 ? '#6366f1' : '#ef4444',
+                        fontWeight: 'bold',
+                        marginLeft: '4px',
+                      }}>
+                        ❤️ {rel}%
+                      </span>
+                      <span
+                        className="badge badge-primary"
+                        style={{ marginLeft: '8px', fontSize: '0.7rem', cursor: 'pointer' }}
+                        onClick={() => setResidentLookup(r.id)}
+                      >
+                        👁️ 档案
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           <p className="text-sm mb-16" style={{ lineHeight: '1.7' }}>{state.dailyEvent.description}</p>
 
           {state.dailyEvent.handled ? (
@@ -273,12 +318,25 @@ export default function Lobby({ onStart }) {
                     ❤️好感{state.dailyEvent.effect.relationshipBoost > 0 ? '+' : ''}{state.dailyEvent.effect.relationshipBoost}
                   </span>
                 )}
+                {state.dailyEvent._residentRepBoost !== undefined && state.dailyEvent._residentRepBoost !== 0 && (
+                  <span style={{ marginLeft: '6px', color: state.dailyEvent._residentRepBoost >= 0 ? '#059669' : '#dc2626' }}>
+                    🧑‍🤝‍🧑住户声望{state.dailyEvent._residentRepBoost > 0 ? '+' : ''}{state.dailyEvent._residentRepBoost}
+                  </span>
+                )}
               </div>
+              {state.dailyEvent._followUpHint && (
+                <div className="text-xs mt-8" style={{ color: '#7c3aed', fontWeight: 'bold' }}>
+                  🔮 明日提示：{state.dailyEvent._followUpHint}
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-3 gap-12">
               {state.dailyEvent.choices.map((choice, idx) => {
                 const eff = choice.effect || {}
+                const hasResBoost = state.dailyEvent.targetResident && choice.targetResidentRepBoost
+                const hasHeat = choice.generateHeatPost
+                const hasTask = choice.generateTaskType
                 return (
                   <button
                     key={idx}
@@ -313,10 +371,20 @@ export default function Lobby({ onStart }) {
                         </span>
                       )}
                       {eff.relationshipBoost !== 0 && (
-                        <span style={{ color: eff.relationshipBoost >= 0 ? '#db2777' : '#dc2626' }}>
+                        <span style={{ marginRight: '4px', color: eff.relationshipBoost >= 0 ? '#db2777' : '#dc2626' }}>
                           ❤️{eff.relationshipBoost > 0 ? '+' : ''}{eff.relationshipBoost}
                         </span>
                       )}
+                      {hasResBoost && (
+                        <span style={{ marginRight: '4px', color: hasResBoost >= 0 ? '#059669' : '#dc2626' }}>
+                          🧑‍🤝‍🧑{hasResBoost > 0 ? '+' : ''}{hasResBoost}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs mt-8" style={{ textAlign: 'center', color: '#7c3aed' }}>
+                      {hasHeat && <span>💬+贴</span>}
+                      {hasHeat && hasTask && <span style={{ margin: '0 4px' }}>·</span>}
+                      {hasTask && <span>📋+任务</span>}
                     </div>
                   </button>
                 )
@@ -325,6 +393,56 @@ export default function Lobby({ onStart }) {
           )}
         </div>
       )}
+
+      {state.dailyEventHistory && state.dailyEventHistory.length > 0 && (() => {
+        const history = state.dailyEventHistory.slice().reverse().slice(0, 6)
+        return (
+          <div className="card" style={{ marginBottom: '20px', background: 'linear-gradient(135deg, #f8fafc, #e2e8f0)' }}>
+            <div className="flex-between mb-12">
+              <h3 className="card-title" style={{ marginBottom: 0, fontSize: '1rem' }}>📜 事件历史记录</h3>
+              <span className="text-xs text-light">共 {state.dailyEventHistory.length} 条</span>
+            </div>
+            <div className="grid grid-3 gap-12">
+              {history.map(h => {
+                const targetR = h.targetResident ? getResidentById(h.targetResident) : null
+                const isChain = h.requires && Object.keys(h.requires).length > 0
+                return (
+                  <div key={h.id} className="card" style={{
+                    marginBottom: 0, padding: '12px',
+                    background: h.actionType === 'daily_expired'
+                      ? 'linear-gradient(135deg, #fef2f2, #fee2e2)'
+                      : 'white',
+                    borderLeft: `4px solid ${h.actionType === 'daily_expired' ? '#ef4444' : isChain ? '#8b5cf6' : '#3b82f6'}`,
+                  }}>
+                    <div className="flex gap-8 mb-6" style={{ alignItems: 'center' }}>
+                      <span style={{ fontSize: '1.3rem' }}>{h.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div className="text-sm font-bold" style={{ lineHeight: '1.3' }}>{h.title}</div>
+                        <div className="text-xs text-light mt-2">
+                          第{h.day}天
+                          {isChain && <span className="badge" style={{ fontSize: '0.65rem', background: '#ede9fe', color: '#6d28d9', marginLeft: '4px' }}>🔗链式</span>}
+                          {h.actionType === 'daily_expired' && <span className="badge badge-danger" style={{ fontSize: '0.65rem', marginLeft: '4px' }}>⏰超时</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {h.chosenChoice && (
+                      <div className="text-xs mb-6" style={{ color: '#166534', background: '#f0fdf4', padding: '6px 8px', borderRadius: '6px' }}>
+                        ✓ {h.chosenChoice}
+                      </div>
+                    )}
+                    {targetR && (
+                      <div className="flex gap-6" style={{ alignItems: 'center', fontSize: '0.75rem', color: '#64748b' }}>
+                        <span className="avatar" style={{ width: '20px', height: '20px', fontSize: '0.7rem' }}>{targetR.avatar}</span>
+                        <span>{targetR.name}（{targetR.buildingName.split(' - ')[0]}）</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="grid grid-2 gap-16">
         <div className="card">
@@ -436,6 +554,95 @@ export default function Lobby({ onStart }) {
           </div>
         </div>
       )}
+
+      {residentLookup && (() => {
+        const r = getResidentById(residentLookup)
+        if (!r) return null
+        const rel = state.relationships?.[r.id] || 30
+        const resPosts = state.posts.filter(p => p.authorId === r.id).slice(0, 3)
+        return (
+          <div className="modal-overlay" onClick={() => setResidentLookup(null)}>
+            <div className="modal-content" style={{ maxWidth: '520px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">🏠 居民档案</h2>
+                <button className="close-btn" onClick={() => setResidentLookup(null)}>×</button>
+              </div>
+              <div style={{
+                background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                color: 'white',
+                borderRadius: 'var(--radius)',
+                padding: '24px',
+                marginBottom: '16px',
+                textAlign: 'center',
+              }}>
+                <div className="avatar" style={{
+                  width: '72px', height: '72px', fontSize: '2.6rem',
+                  margin: '0 auto 12px', border: '3px solid rgba(255,255,255,0.5)',
+                }}>
+                  {r.avatar}
+                </div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{r.name}</div>
+                <div style={{ opacity: 0.9, marginTop: '4px', fontSize: '0.9rem' }}>{r.buildingName}</div>
+                <div style={{ marginTop: '8px', fontSize: '0.8rem', opacity: 0.85 }}>
+                  🏡 入住{r.joinDays}天
+                </div>
+              </div>
+              <div className="grid grid-3 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">声望</div>
+                  <div className="font-bold text-primary" style={{ fontSize: '1.15rem' }}>⭐ {r.reputation}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">金币</div>
+                  <div className="font-bold" style={{ color: '#f59e0b', fontSize: '1.15rem' }}>🪙 {r.coins}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">对你好感</div>
+                  <div className="font-bold" style={{
+                    fontSize: '1.15rem',
+                    color: rel >= 80 ? '#db2777' : rel >= 50 ? '#8b5cf6' : rel >= 30 ? '#6366f1' : '#ef4444',
+                  }}>
+                    ❤️ {rel}%
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-2 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">发帖</div>
+                  <div className="font-bold" style={{ fontSize: '1rem' }}>📝 {r.postCount || 0}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">被举报</div>
+                  <div className={`font-bold ${(r.reportCount || 0) > 0 ? 'text-danger' : ''}`} style={{ fontSize: '1rem' }}>
+                    ⚠️ {r.reportCount || 0}
+                  </div>
+                </div>
+              </div>
+              {r.tags && r.tags.length > 0 && (
+                <div className="mb-12">
+                  <div className="text-sm text-light mb-8">🏷️ 标签</div>
+                  <div className="flex gap-8 flex-wrap">
+                    {r.tags.map(t => (
+                      <span key={t} className="badge badge-primary" style={{ fontSize: '0.78rem' }}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resPosts.length > 0 && (
+                <div>
+                  <div className="text-sm text-light mb-8">💬 最近发帖（{resPosts.length}）</div>
+                  {resPosts.map(p => (
+                    <div key={p.id} className="card" style={{ marginBottom: '8px', padding: '10px 12px' }}>
+                      <div className="font-bold text-sm mb-4">{p.title}</div>
+                      <div className="text-xs text-light">🔥 {p.heat}热度 · ❤️ {p.likes}赞 · 💬 {p.comments.length}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

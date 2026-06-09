@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useGame } from '../context/GameContext'
+import { NPC_RESIDENTS } from '../data/gameData'
 
 const CATEGORIES = ['全部', '分享', '推荐', '组队', '求助', '建议', '吐槽']
 
@@ -19,6 +20,18 @@ export default function Forum() {
   const [expandedPost, setExpandedPost] = useState(null)
   const [commentText, setCommentText] = useState('')
   const [sortBy, setSortBy] = useState('latest')
+  const [residentLookup, setResidentLookup] = useState(null)
+
+  const getResidentById = (rid) => state.residents.find(r => r.id === rid) || NPC_RESIDENTS.find(r => r.id === rid)
+  const getPostAuthorBuilding = (p) => {
+    if (p.authorBuilding) return p.authorBuilding
+    if (p.authorId && p.authorId.startsWith('npc_')) {
+      const r = getResidentById(p.authorId)
+      return r?.buildingName
+    }
+    if (p.authorId === state.player?.id) return state.player?.buildingName
+    return null
+  }
 
   const filteredPosts = state.posts.filter(p =>
     activeCategory === '全部' ? true : p.category === activeCategory
@@ -119,20 +132,59 @@ export default function Forum() {
                   }}
                 >
                   <div className="post-header">
-                    <div className="avatar avatar-sm">{post.authorAvatar}</div>
+                    <div
+                      className="avatar avatar-sm"
+                      style={{ cursor: post.authorId?.startsWith('npc_') ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        if (post.authorId?.startsWith('npc_')) setResidentLookup(post.authorId)
+                      }}
+                      title={post.authorId?.startsWith('npc_') ? '点击查看居民档案' : ''}
+                    >
+                      {post.authorAvatar}
+                    </div>
                     <div style={{ flex: 1 }}>
-                      <div className="flex gap-8" style={{ alignItems: 'center' }}>
-                        <span className="font-bold text-sm">{post.authorName}</span>
+                      <div className="flex gap-8" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span
+                          className="font-bold text-sm"
+                          style={{ cursor: post.authorId?.startsWith('npc_') ? 'pointer' : 'default', color: post.authorId?.startsWith('npc_') ? 'var(--primary)' : 'inherit' }}
+                          onClick={() => {
+                            if (post.authorId?.startsWith('npc_')) setResidentLookup(post.authorId)
+                          }}
+                        >
+                          {post.authorName}
+                        </span>
+                        {(() => {
+                          const b = getPostAuthorBuilding(post)
+                          if (b) return <span className="text-xs text-light" style={{ whiteSpace: 'nowrap' }}>📍 {b}</span>
+                          return null
+                        })()}
                         <span className="badge badge-primary">{post.category}</span>
                         {getHeatBadge(post.heat)}
-                        {post.isReported && <span className="badge badge-accent">⚠️ 已举报</span>}
+                        {post.isReported && <span className="badge badge-accent">⚠️ 已举报({post.reportCount || 1})</span>}
                         {post.isPenalized && <span className="badge badge-danger">🚫 已扣分</span>}
                         {post.authorId === state.player.id && (
                           <span className="badge badge-secondary">我</span>
                         )}
+                        {post.authorId?.startsWith('npc_') && (
+                          <span
+                            className="badge"
+                            style={{ fontSize: '0.7rem', cursor: 'pointer', background: '#ede9fe', color: '#6d28d9' }}
+                            onClick={() => setResidentLookup(post.authorId)}
+                          >
+                            👁️ 档案
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-light">
                         {new Date(post.createdAt).toLocaleString()}
+                        {(() => {
+                          const r = post.authorId?.startsWith('npc_') ? getResidentById(post.authorId) : null
+                          if (r) {
+                            const rel = state.relationships?.[r.id] || 30
+                            return <span style={{ marginLeft: '8px' }}>❤️ 对你好感 {rel}% · ⭐声望 {r.reputation}</span>
+                          }
+                          return null
+                        })()}
                       </span>
                     </div>
                     <div style={{ width: '80px' }}>
@@ -172,16 +224,25 @@ export default function Forum() {
                         ⚠️ 举报
                       </span>
                     )}
+                    {post.authorId?.startsWith('npc_') && (
+                      <span
+                        className="post-action"
+                        style={{ color: '#6366f1' }}
+                        onClick={() => setResidentLookup(post.authorId)}
+                      >
+                        👁️ 查看住户
+                      </span>
+                    )}
                     {state.isAdmin && !post.isPenalized && (
                       <span
                         className="post-action text-danger"
                         onClick={() => {
-                          if (confirm('作为管理员，确定要对该违规内容扣分（声望-10）吗？')) {
+                          if (confirm(`作为管理员，确定要对「${post.authorName}」的违规内容扣分（声望-15）吗？`)) {
                             dispatch({ type: 'PENALIZE_POST', payload: post.id })
                           }
                         }}
                       >
-                        🚫 扣分处罚
+                        🚫 扣分-15
                       </span>
                     )}
                   </div>
@@ -426,6 +487,129 @@ export default function Forum() {
           </div>
         </div>
       )}
+
+      {residentLookup && (() => {
+        const r = getResidentById(residentLookup)
+        if (!r) return null
+        const rel = state.relationships?.[r.id] || 30
+        const resPosts = state.posts.filter(p => p.authorId === r.id).slice(0, 5)
+        const resHistory = state.reportHistory.filter(h => h.postAuthorId === r.id)
+        return (
+          <div className="modal-overlay" onClick={() => setResidentLookup(null)}>
+            <div className="modal-content" style={{ maxWidth: '540px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">🏠 住户档案</h2>
+                <button className="close-btn" onClick={() => setResidentLookup(null)}>×</button>
+              </div>
+              <div style={{
+                background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                color: 'white',
+                borderRadius: 'var(--radius)',
+                padding: '22px',
+                marginBottom: '14px',
+                textAlign: 'center',
+              }}>
+                <div className="avatar" style={{
+                  width: '70px', height: '70px', fontSize: '2.5rem',
+                  margin: '0 auto 10px', border: '3px solid rgba(255,255,255,0.5)',
+                }}>
+                  {r.avatar}
+                </div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{r.name}</div>
+                <div style={{ opacity: 0.9, marginTop: '4px', fontSize: '0.88rem' }}>{r.buildingName}</div>
+                <div style={{ marginTop: '6px', fontSize: '0.8rem', opacity: 0.85 }}>
+                  🏡 入住{r.joinDays}天 · 声望榜第{state.leaderboard.findIndex(x => x.id === r.id) + 1}名
+                </div>
+              </div>
+              <div className="grid grid-3 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">声望</div>
+                  <div className="font-bold text-primary" style={{ fontSize: '1.1rem' }}>⭐ {r.reputation}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">金币</div>
+                  <div className="font-bold" style={{ color: '#f59e0b', fontSize: '1.1rem' }}>🪙 {r.coins}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">对你好感</div>
+                  <div className="font-bold" style={{
+                    fontSize: '1.1rem',
+                    color: rel >= 80 ? '#db2777' : rel >= 50 ? '#8b5cf6' : rel >= 30 ? '#6366f1' : '#ef4444',
+                  }}>
+                    ❤️ {rel}%
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-2 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">发帖数</div>
+                  <div className="font-bold" style={{ fontSize: '1rem' }}>📝 {r.postCount || 0}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">被举报</div>
+                  <div className={`font-bold ${(r.reportCount || 0) > 0 ? 'text-danger' : ''}`} style={{ fontSize: '1rem' }}>
+                    ⚠️ {r.reportCount || 0}
+                  </div>
+                </div>
+              </div>
+              {r.tags && r.tags.length > 0 && (
+                <div className="mb-12">
+                  <div className="text-sm text-light mb-8">🏷️ 标签</div>
+                  <div className="flex gap-8 flex-wrap">
+                    {r.tags.map(t => (
+                      <span key={t} className="badge badge-primary" style={{ fontSize: '0.78rem' }}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resPosts.length > 0 && (
+                <div className="mb-12">
+                  <div className="text-sm text-light mb-8">💬 TA 的帖子（{resPosts.length}）</div>
+                  <div className="scroll-container" style={{ maxHeight: '150px' }}>
+                    {resPosts.map(p => (
+                      <div key={p.id} className="card" style={{ marginBottom: '6px', padding: '10px 12px', cursor: 'pointer' }}
+                        onClick={() => { setResidentLookup(null); setExpandedPost(p.id); document.getElementById('forum-post-' + p.id)?.scrollIntoView({ behavior: 'smooth' }) }}>
+                        <div className="font-bold text-sm mb-4">{p.title}</div>
+                        <div className="text-xs text-light flex gap-12 flex-wrap">
+                          <span>🔥 {p.heat}</span>
+                          <span>❤️ {p.likes}</span>
+                          <span>💬 {p.comments.length}</span>
+                          {p.isPenalized && <span className="text-danger">🚫已扣分</span>}
+                          {p.isReported && <span className="text-accent">⚠️举报({p.reportCount || 1})</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resHistory.length > 0 && (
+                <div>
+                  <div className="text-sm text-light mb-8">📜 审核记录</div>
+                  <div className="scroll-container" style={{ maxHeight: '130px' }}>
+                    {resHistory.slice().reverse().map(h => (
+                      <div key={h.id} className="card" style={{
+                        marginBottom: '6px', padding: '8px 12px',
+                        borderLeft: `4px solid ${h.action === 'penalized' ? '#ef4444' : h.action === 'compliant' ? '#10b981' : '#64748b'}`,
+                      }}>
+                        <div className="flex-between mb-4">
+                          <span className="font-bold text-xs">{h.postTitle}</span>
+                          <span className="text-xs text-light">第{h.day || '?'}天</span>
+                        </div>
+                        <div className="text-xs">
+                          <span className={`badge ${h.action === 'penalized' ? 'badge-danger' : h.action === 'compliant' ? 'badge-secondary' : ''}`} style={{ fontSize: '0.65rem' }}>
+                            {h.action === 'penalized' ? '🚫扣分' : h.action === 'compliant' ? '✅合规' : '⏭️忽略'}
+                          </span>
+                          {h.penalty && <span className="text-danger ml-8" style={{ marginLeft: '6px' }}>{h.penalty}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

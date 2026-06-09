@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useGame } from '../context/GameContext'
-import { LIMITED_EVENTS } from '../data/gameData'
+import { LIMITED_EVENTS, NPC_RESIDENTS } from '../data/gameData'
 
 const TASK_TYPES = {
   help: { name: '互助任务', icon: '🤝', color: 'secondary' },
@@ -12,36 +12,37 @@ const TASK_TYPES = {
 export default function Tasks() {
   const { state, dispatch } = useGame()
   const [activeTab, setActiveTab] = useState('available')
-  const [progressMap, setProgressMap] = useState({})
-  const [eventProgress, setEventProgress] = useState(0)
+  const [eventProgress, setEventProgress] = useState(state.limitedEvent?.progress || 0)
   const [showEventModal, setShowEventModal] = useState(false)
   const [currentEvent, setCurrentEvent] = useState(null)
 
+  const stableIds = useMemo(() => state.activeTasks.map(t => t.id).join('|'), [state.activeTasks])
   useEffect(() => {
     const interval = setInterval(() => {
-      setProgressMap(prev => {
-        const next = { ...prev }
-        state.activeTasks.forEach(task => {
-          if (!next[task.id]) next[task.id] = 0
-          next[task.id] = Math.min(100, next[task.id] + Math.random() * 5 + 2)
-          if (next[task.id] >= 100) {
-            next[task.id] = 100
-          }
-        })
-        return next
+      state.activeTasks.forEach(task => {
+        const cur = task.progress || 0
+        if (cur < 100) {
+          dispatch({ type: 'PROGRESS_TASK', payload: { taskId: task.id, progressDelta: Math.random() * 4 + 2 } })        }
       })
-
       if (state.limitedEvent) {
         setEventProgress(prev => Math.min(100, prev + Math.random() * 3 + 1))
       }
-    }, 500)
-
+    }, 600)
     return () => clearInterval(interval)
-  }, [state.activeTasks.length, state.limitedEvent])
+  }, [stableIds, state.limitedEvent])
+
+  useEffect(() => {
+    setEventProgress(state.limitedEvent?.progress || 0)
+  }, [state.limitedEvent?.id])
 
   const getTaskBadge = type => {
     const info = TASK_TYPES[type] || { name: '任务', icon: '📋', color: 'primary' }
     return <span className={`badge badge-${info.color}`}>{info.icon} {info.name}</span>
+  }
+
+  const getResidentAssignee = rid => {
+    if (!rid) return null
+    return NPC_RESIDENTS.find(r => r.id === rid) || null
   }
 
   return (
@@ -137,37 +138,63 @@ export default function Tasks() {
                   <p>暂无进行中的任务，去接取一些任务吧！</p>
                 </div>
               ) : (
-                state.activeTasks.map(task => (
-                  <div key={task.id} className="card" style={{ marginBottom: '12px', border: '2px solid var(--primary-light)' }}>
-                    <div className="flex-between mb-12">
-                      <div>
-                        {getTaskBadge(task.type)}
-                        <h3 className="font-bold mt-8" style={{ fontSize: '1.05rem' }}>{task.title}</h3>
+                state.activeTasks.map(task => {
+                  const progress = task.progress || 0
+                  const ready = progress >= 100
+                  const assignee = getResidentAssignee(task._residentAssignee)
+                  return (
+                    <div key={task.id} className="card" style={{
+                      marginBottom: '12px',
+                      border: ready ? '2px solid #10b981' : '2px solid var(--primary-light)',
+                      background: ready ? 'linear-gradient(135deg, #ecfdf5, #d1fae5)' : undefined,
+                    }}>
+                      <div className="flex-between mb-12">
+                        <div>
+                          {getTaskBadge(task.type)}
+                          <h3 className="font-bold mt-8" style={{ fontSize: '1.05rem' }}>{task.title}</h3>
+                          {assignee && (
+                            <div className="text-xs mt-4" style={{ color: '#6b7280' }}>
+                              🧑‍🤝‍🧑 关联住户：{assignee.avatar} {assignee.name}（{assignee.buildingName}）
+                            </div>
+                          )}
+                        </div>
+                        <span className={`badge ${ready ? 'badge-secondary' : 'badge-accent pulse'}`}>
+                          {ready ? '✅ 可交付' : '进行中'}
+                        </span>
                       </div>
-                      <span className="badge badge-accent pulse">进行中</span>
-                    </div>
-                    <p className="text-sm text-light mb-12">{task.description}</p>
-                    <div className="mb-8">
-                      <div className="flex-between mb-4">
-                        <span className="text-sm">任务进度</span>
-                        <span className="text-sm font-bold text-primary">{Math.floor(progressMap[task.id] || 0)}%</span>
+                      <p className="text-sm text-light mb-12">{task.description}</p>
+                      <div className="mb-8">
+                        <div className="flex-between mb-4">
+                          <span className="text-sm">任务进度</span>
+                          <span className={`text-sm font-bold ${ready ? 'text-secondary' : 'text-primary'}`}>
+                            {Math.floor(progress)}%{ready ? ' — 可提交完成！' : ''}
+                          </span>
+                        </div>
+                        <div className="progress-bar">
+                          <div
+                            className={`progress-fill ${ready ? '' : ''}`}
+                            style={{
+                              width: progress + '%',
+                              background: ready
+                                ? 'linear-gradient(90deg, #34d399, #10b981)'
+                                : undefined,
+                            }}
+                          ></div>
+                        </div>
                       </div>
-                      <div className="progress-bar">
-                        <div className="progress-fill" style={{ width: (progressMap[task.id] || 0) + '%' }}></div>
+                      <div className="flex gap-12">
+                        <button
+                          className={`btn ${ready ? 'btn-secondary' : 'btn-outline'}`}
+                          style={{ flex: 1 }}
+                          disabled={!ready}
+                          onClick={() => dispatch({ type: 'COMPLETE_TASK', payload: task.id })}
+                        >
+                          {ready ? '🎁 提交完成并领取奖励' : '⏳ 进度推进中...'}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-12">
-                      <button
-                        className="btn btn-secondary"
-                        style={{ flex: 1 }}
-                        disabled={(progressMap[task.id] || 0) < 100}
-                        onClick={() => dispatch({ type: 'COMPLETE_TASK', payload: task.id })}
-                      >
-                        ✅ 提交完成
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           )}

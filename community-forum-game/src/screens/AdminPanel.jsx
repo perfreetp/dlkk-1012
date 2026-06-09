@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useGame } from '../context/GameContext'
-import { LIMITED_EVENTS, BUILDINGS, REPORT_HISTORY_TYPES } from '../data/gameData'
+import { LIMITED_EVENTS, BUILDINGS, REPORT_HISTORY_TYPES, NPC_RESIDENTS } from '../data/gameData'
 
 export default function AdminPanel() {
   const { state, dispatch } = useGame()
@@ -10,6 +10,7 @@ export default function AdminPanel() {
   const [announceType, setAnnounceType] = useState('普通')
   const [selectedReported, setSelectedReported] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [residentLookup, setResidentLookup] = useState(null)
 
   const reportedPosts = state.posts.filter(p => p.isReported && !p.isPenalized)
   const myPosts = state.posts.filter(p => p.authorId === state.player?.id)
@@ -34,11 +35,27 @@ export default function AdminPanel() {
     alert('公告发布成功！')
   }
 
+  const totalResidents = useMemo(() => state.residents.length + 1, [state.residents])
+  const totalReputation = useMemo(() => {
+    const sum = state.residents.reduce((s, r) => s + r.reputation, 0)
+    return sum + state.reputation
+  }, [state.residents, state.reputation])
+  const allCompletedTasks = useMemo(() => {
+    const resSum = state.residents.reduce((s, r) => s + (r.taskCompleted || 0), 0)
+    return resSum + state.completedTasks.length
+  }, [state.residents, state.completedTasks])
+
+  const getPostAuthorResident = post => {
+    if (!post?.authorId || post.isPlayerPost) return null
+    return state.residents.find(r => r.id === post.authorId) || null
+  }
+  const getResidentById = rid => state.residents.find(r => r.id === rid) || NPC_RESIDENTS.find(n => n.id === rid)
+
   const stats = {
-    totalResidents: 10 + 1,
+    totalResidents,
     totalPosts: state.posts.length,
-    totalReputation: state.reputation + 3500,
-    totalTasks: state.completedTasks.length + 45,
+    totalReputation,
+    totalTasks: allCompletedTasks,
   }
 
   return (
@@ -195,7 +212,10 @@ export default function AdminPanel() {
                     </div>
                   ) : (
                     <div className="scroll-container" style={{ maxHeight: '500px' }}>
-                      {reportedPosts.map(post => (
+                      {reportedPosts.map(post => {
+                        const author = getPostAuthorResident(post)
+                        const isPlayer = post.isPlayerPost || post.authorId === state.player?.id
+                        return (
                         <div
                           key={post.id}
                           className="card"
@@ -211,13 +231,42 @@ export default function AdminPanel() {
                             <div className="flex gap-8" style={{ alignItems: 'center' }}>
                               <div className="avatar avatar-sm">{post.authorAvatar}</div>
                               <div>
-                                <span className="font-bold">{post.authorName}</span>
-                                <span className="text-xs text-light" style={{ marginLeft: '8px' }}>
+                                <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                                  <span className="font-bold">{post.authorName}</span>
+                                  {isPlayer ? (
+                                    <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>玩家本人</span>
+                                  ) : (
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        cursor: 'pointer',
+                                        background: 'var(--primary-light)',
+                                        color: 'white',
+                                      }}
+                                      onClick={e => {
+                                        e.stopPropagation()
+                                        if (author) setResidentLookup(author.id)
+                                      }}
+                                    >
+                                      👁️ 查看档案
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-light" style={{ marginTop: '4px' }}>
                                   {new Date(post.createdAt).toLocaleString()}
-                                </span>
+                                  {author && ` · ${author.buildingName} · 累计被举报${author.reportCount || 0}次`}
+                                </div>
                               </div>
                             </div>
-                            <span className="badge badge-accent">⚠️ 已举报</span>
+                            <div style={{ textAlign: 'right' }}>
+                              <span className="badge badge-accent">⚠️ {post.reportCount || 1}次举报</span>
+                              {author && (
+                                <div className="text-xs mt-4" style={{ color: author.reputation < 60 ? '#dc2626' : '#6b7280' }}>
+                                  作者声望: ⭐ {author.reputation}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           <div className="font-bold mb-4">{post.title}</div>
                           <p className="text-sm text-light mb-12">{post.content}</p>
@@ -226,12 +275,12 @@ export default function AdminPanel() {
                               className="btn btn-sm btn-danger"
                               onClick={e => {
                                 e.stopPropagation()
-                                if (confirm('确认对该违规内容扣分处罚？（作者声望-10，并记入审核历史）')) {
+                                if (confirm(`确认对该违规内容扣分处罚？\n作者: ${post.authorName}\n扣声望: -15\n并记入审核历史`)) {
                                   dispatch({ type: 'PENALIZE_POST', payload: post.id })
                                 }
                               }}
                             >
-                              🚫 扣分处罚
+                              🚫 扣分-15
                             </button>
                             <button
                               className="btn btn-sm btn-secondary"
@@ -253,7 +302,7 @@ export default function AdminPanel() {
                             </button>
                           </div>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   )}
 
@@ -261,7 +310,7 @@ export default function AdminPanel() {
 
                   <div className="flex-between mb-12">
                     <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: 0 }}>
-                      � 审核处理历史 ({reviewHistory.length})
+                      📜 审核处理历史 ({reviewHistory.length})
                     </h3>
                     <button
                       className={`btn btn-sm ${showHistory ? 'btn-accent' : 'btn-outline'}`}
@@ -299,7 +348,9 @@ export default function AdminPanel() {
                           暂无审核处理记录
                         </p>
                       ) : (
-                        reviewHistory.slice().reverse().map(r => (
+                        reviewHistory.slice().reverse().map(r => {
+                          const author = r.postAuthorId && !r.isPlayerPost ? getResidentById(r.postAuthorId) : null
+                          return (
                           <div
                             key={r.id}
                             className="mb-8"
@@ -317,7 +368,7 @@ export default function AdminPanel() {
                             }}
                           >
                             <div className="flex-between mb-4">
-                              <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                              <div className="flex gap-8" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
                                 <span className={`badge ${
                                   r.action === REPORT_HISTORY_TYPES.PENALIZED ? 'badge-danger' :
                                   r.action === REPORT_HISTORY_TYPES.COMPLIANT ? 'badge-secondary' : 'badge-primary'
@@ -326,17 +377,34 @@ export default function AdminPanel() {
                                    r.action === REPORT_HISTORY_TYPES.COMPLIANT ? '✅ 合规' : '⏭️ 忽略'}
                                 </span>
                                 <span className="font-bold text-sm">{r.postTitle}</span>
+                                {author && (
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      fontSize: '0.7rem',
+                                      cursor: 'pointer',
+                                      background: 'var(--primary-light)',
+                                      color: 'white',
+                                    }}
+                                    onClick={() => setResidentLookup(author.id)}
+                                  >
+                                    👁️ {author.name}
+                                  </span>
+                                )}
+                                {r.isPlayerPost && (
+                                  <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>玩家帖</span>
+                                )}
                               </div>
                               <span className="text-xs text-light">
-                                {new Date(r.handledAt).toLocaleString()}
+                                第{r.day || '?'}天 · {new Date(r.handledAt).toLocaleString()}
                               </span>
                             </div>
                             <div className="text-xs text-light">
                               作者: {r.postAuthor} · 处理人: {r.handledBy}
-                              {r.penalty && <span className="text-danger" style={{ marginLeft: '8px' }}>声望{r.penalty}</span>}
+                              {r.penalty && <span className="text-danger" style={{ marginLeft: '8px', fontWeight: 'bold' }}>声望{r.penalty}</span>}
                             </div>
                           </div>
-                        ))
+                        )})
                       )}
                     </div>
                   )}
@@ -397,8 +465,10 @@ export default function AdminPanel() {
                     <div className="card" style={{ marginBottom: 0 }}>
                       <h3 className="card-title" style={{ fontSize: '1rem' }}>🏢 楼栋住户分布</h3>
                       {BUILDINGS.map(b => {
-                        const count = 2 + (b.id === state.player?.buildingId ? 1 : 0)
-                        const percent = Math.round((count / 11) * 100)
+                        const resCount = state.residents.filter(r => r.buildingId === b.id).length
+                        const hasPlayer = state.player?.buildingId === b.id ? 1 : 0
+                        const count = resCount + hasPlayer
+                        const percent = Math.round((count / totalResidents) * 100)
                         return (
                           <div key={b.id} className="mb-8">
                             <div className="flex-between mb-4">
@@ -422,8 +492,16 @@ export default function AdminPanel() {
                       </div>
                       <div className="mb-12">
                         <div className="flex-between mb-4">
-                          <span className="text-sm">处理违规</span>
-                          <span className="font-bold text-danger">{state.heatPenalties}起</span>
+                          <span className="text-sm">处理违规扣分</span>
+                          <span className="font-bold text-danger">{reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.PENALIZED).length}起</span>
+                        </div>
+                      </div>
+                      <div className="mb-12">
+                        <div className="flex-between mb-4">
+                          <span className="text-sm">合规通过/忽略</span>
+                          <span className="font-bold text-secondary">
+                            {reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.COMPLIANT).length} / {reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.IGNORED).length}
+                          </span>
                         </div>
                       </div>
                       <div className="mb-12">
@@ -440,7 +518,7 @@ export default function AdminPanel() {
                       </div>
                       <div>
                         <div className="flex-between mb-4">
-                          <span className="text-sm">累计声望</span>
+                          <span className="text-sm">我的声望</span>
                           <span className="font-bold" style={{ color: '#8b5cf6' }}>{state.reputation}</span>
                         </div>
                       </div>
@@ -462,6 +540,48 @@ export default function AdminPanel() {
                           </div>
                         )
                       })}
+                    </div>
+                  </div>
+
+                  <div className="divider"></div>
+
+                  <div className="card" style={{ marginBottom: 0 }}>
+                    <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '12px' }}>📋 居民声望 Top 10（含你）</h3>
+                    <div className="scroll-container" style={{ maxHeight: '260px' }}>
+                      {state.leaderboard.map(item => (
+                        <div
+                          key={item.id}
+                          className="flex-between mb-8"
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: item.isPlayer
+                              ? 'linear-gradient(135deg, #dbeafe, #bfdbfe)'
+                              : 'var(--bg)',
+                            border: item.isPlayer ? '1px solid var(--primary)' : 'none',
+                          }}
+                        >
+                          <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                            <span style={{
+                              width: '28px', height: '28px',
+                              borderRadius: '50%',
+                              background: item.rank <= 3 ? (item.rank === 1 ? '#fde047' : item.rank === 2 ? '#cbd5e1' : '#fed7aa') : '#e2e8f0',
+                              color: item.rank <= 3 ? '#78350f' : '#475569',
+                              fontWeight: 'bold',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '0.8rem',
+                            }}>
+                              {item.rank}
+                            </span>
+                            <span className="avatar avatar-sm">{item.avatar}</span>
+                            <div>
+                              <span className="font-bold text-sm">{item.name}</span>
+                              <div className="text-xs text-light">{item.buildingName}</div>
+                            </div>
+                          </div>
+                          <div className="text-sm font-bold" style={{ color: 'var(--primary)' }}>⭐ {item.score}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -567,10 +687,31 @@ export default function AdminPanel() {
             </div>
             <div className="flex gap-12 mb-16" style={{ alignItems: 'center' }}>
               <div className="avatar">{selectedReported.authorAvatar}</div>
-              <div>
-                <div className="font-bold">{selectedReported.authorName}</div>
+              <div style={{ flex: 1 }}>
+                <div className="flex gap-8" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="font-bold">{selectedReported.authorName}</div>
+                  {(() => {
+                    const author = getPostAuthorResident(selectedReported)
+                    if (author) {
+                      return (
+                        <span
+                          className="badge badge-primary"
+                          style={{ fontSize: '0.7rem', cursor: 'pointer' }}
+                          onClick={() => { setResidentLookup(author.id); setSelectedReported(null) }}
+                        >
+                          👁️ 查看居民档案
+                        </span>
+                      )
+                    }
+                    if (selectedReported.isPlayerPost) {
+                      return <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>玩家本人</span>
+                    }
+                    return null
+                  })()}
+                </div>
                 <div className="text-xs text-light">
                   发布于 {new Date(selectedReported.createdAt).toLocaleString()}
+                  {getPostAuthorResident(selectedReported) && ` · ${getPostAuthorResident(selectedReported).buildingName}`}
                 </div>
               </div>
             </div>
@@ -585,6 +726,7 @@ export default function AdminPanel() {
               <span>❤️ {selectedReported.likes} 点赞</span>
               <span>💬 {selectedReported.comments.length} 评论</span>
               <span>🔥 {selectedReported.heat} 热度</span>
+              <span>⚠️ {selectedReported.reportCount || 1} 举报</span>
             </div>
             <div className="flex gap-12">
               <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setSelectedReported(null)}>
@@ -614,18 +756,118 @@ export default function AdminPanel() {
                 className="btn btn-danger"
                 style={{ flex: 1 }}
                 onClick={() => {
-                  if (confirm('确认扣除作者10点声望？')) {
+                  if (confirm(`确认扣除作者15点声望？\n作者: ${selectedReported.authorName}`)) {
                     dispatch({ type: 'PENALIZE_POST', payload: selectedReported.id })
                     setSelectedReported(null)
                   }
                 }}
               >
-                🚫 扣分处罚
+                🚫 扣分-15
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {residentLookup && (() => {
+        const r = getResidentById(residentLookup)
+        if (!r) return null
+        const resPosts = state.posts.filter(p => p.authorId === r.id)
+        const resHistory = state.reportHistory.filter(h => h.postAuthorId === r.id)
+        return (
+          <div className="modal-overlay" onClick={() => setResidentLookup(null)}>
+            <div className="modal-content" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">🏠 居民档案（管理员视角）</h2>
+                <button className="close-btn" onClick={() => setResidentLookup(null)}>×</button>
+              </div>
+              <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                borderRadius: 'var(--radius)',
+                padding: '24px',
+                marginBottom: '16px',
+                textAlign: 'center',
+              }}>
+                <div className="avatar" style={{
+                  width: '80px', height: '80px', fontSize: '3rem',
+                  margin: '0 auto 12px', border: '3px solid rgba(255,255,255,0.5)',
+                }}>
+                  {r.avatar}
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold' }}>{r.name}</div>
+                <div style={{ opacity: 0.85, marginTop: '4px' }}>{r.buildingName}</div>
+                <div style={{ marginTop: '8px', fontSize: '0.85rem' }}>
+                  🏡 入住{r.joinDays}天 · 声望排行第{state.leaderboard.findIndex(x => x.id === r.id) + 1}名
+                </div>
+              </div>
+              <div className="grid grid-3 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">声望</div>
+                  <div className="font-bold text-primary" style={{ fontSize: '1.2rem' }}>⭐ {r.reputation}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">金币</div>
+                  <div className="font-bold" style={{ color: '#f59e0b', fontSize: '1.2rem' }}>🪙 {r.coins}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">举报次数</div>
+                  <div className={`font-bold ${(r.reportCount || 0) > 0 ? 'text-danger' : ''}`} style={{ fontSize: '1.2rem' }}>
+                    ⚠️ {r.reportCount || 0}
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-2 gap-12 mb-16 text-center">
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">发帖总数</div>
+                  <div className="font-bold" style={{ fontSize: '1.1rem' }}>📝 {r.postCount || 0}</div>
+                </div>
+                <div className="card" style={{ marginBottom: 0, padding: '12px' }}>
+                  <div className="text-xs text-light mb-4">协助完成任务</div>
+                  <div className="font-bold" style={{ fontSize: '1.1rem', color: '#10b981' }}>✅ {r.taskCompleted || 0}</div>
+                </div>
+              </div>
+              {r.tags && r.tags.length > 0 && (
+                <div className="mb-12">
+                  <div className="text-sm text-light mb-8">🏷️ 标签</div>
+                  <div className="flex gap-8 flex-wrap">
+                    {r.tags.map(t => (
+                      <span key={t} className="badge badge-primary" style={{ fontSize: '0.8rem' }}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resHistory.length > 0 && (
+                <div>
+                  <div className="text-sm text-light mb-8">
+                    📜 审核记录（{resHistory.length}条）
+                  </div>
+                  <div className="scroll-container" style={{ maxHeight: '160px' }}>
+                    {resHistory.slice().reverse().map(h => (
+                      <div key={h.id} className="card" style={{
+                        marginBottom: '8px', padding: '10px 12px',
+                        borderLeft: `4px solid ${h.action === REPORT_HISTORY_TYPES.PENALIZED ? '#ef4444' : h.action === REPORT_HISTORY_TYPES.COMPLIANT ? '#10b981' : '#64748b'}`,
+                      }}>
+                        <div className="flex-between mb-4">
+                          <span className="font-bold text-sm">{h.postTitle}</span>
+                          <span className="text-xs text-light">第{h.day || '?'}天</span>
+                        </div>
+                        <div className="text-xs text-light">
+                          <span className={`badge badge-${h.action === REPORT_HISTORY_TYPES.PENALIZED ? 'danger' : h.action === REPORT_HISTORY_TYPES.COMPLIANT ? 'secondary' : ''}`} style={{ fontSize: '0.7rem' }}>
+                            {h.action === REPORT_HISTORY_TYPES.PENALIZED ? '🚫扣分' : h.action === REPORT_HISTORY_TYPES.COMPLIANT ? '✅合规' : '⏭️忽略'}
+                          </span>
+                          {h.penalty && <span className="text-danger ml-8" style={{ marginLeft: '8px' }}>声望{h.penalty}</span>}
+                          <span style={{ marginLeft: '8px' }}>处理人: {h.handledBy}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
