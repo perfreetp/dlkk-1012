@@ -398,16 +398,20 @@ function gameReducer(state, action) {
       })
 
       let updatedResidents = state.residents
+      let residentChangeMsg = null
       if (task._residentAssignee) {
         const target = findResidentById(updatedResidents, task._residentAssignee)
         if (target) {
+          const residentCoinBoost = 10 + Math.floor(Math.random() * 15)
           updatedResidents = updateResident(updatedResidents, 'id', task._residentAssignee, {
             reputation: Math.min(999, target.reputation + 5),
+            coins: target.coins + residentCoinBoost,
             taskCompleted: (target.taskCompleted || 0) + 1,
           })
           if (newRelationships[task._residentAssignee] !== undefined) {
             newRelationships[task._residentAssignee] = Math.min(100, newRelationships[task._residentAssignee] + 10)
           }
+          residentChangeMsg = ` · 🏠 ${target.name}：声望+5、金币+${residentCoinBoost}、协助次数+1、好感+10`
         }
       }
 
@@ -446,14 +450,15 @@ function gameReducer(state, action) {
         relationships: newRelationships,
         residents: updatedResidents,
         leaderboard: computeLeaderboard(updatedResidents, state.player),
-        activityLog: [...state.activityLog, { type: 'success', message: `完成任务：${task.title}，声望+${task.reward.reputation}，金币+${task.reward.coins}`, time: Date.now() }],
+        activityLog: [...state.activityLog, { type: 'success', message: `完成任务：${task.title}，声望+${task.reward.reputation}，金币+${task.reward.coins}${residentChangeMsg || ''}`, time: Date.now() }],
       }
     }
 
     case 'GENERATE_NEW_TASK': {
-      if (state.tasks.length >= 15) return state
+      if (state.tasks.length >= 15 && !action.payload?.autoAccept) return state
       const taskType = action.payload?.type || null
       const residentAssign = action.payload?.residentId || null
+      const autoAccept = !!action.payload?.autoAccept
       const baseTemplates = [
         { type: 'help', titlePool: ['送东西', '照看宠物', '浇花', '搬重物', '取快递', '代买东西', '看小孩'] },
         { type: 'market', titlePool: ['闲置电器', '儿童玩具', '手工艺品', '旧衣物', '书籍文具', '家居用品'] },
@@ -493,6 +498,19 @@ function gameReducer(state, action) {
         generatedAt: Date.now(),
         generatedDay: state.day,
         _residentAssignee: residentAssign,
+        progress: 0,
+        _fromEvent: true,
+      }
+      if (autoAccept) {
+        return {
+          ...state,
+          activeTasks: [...state.activeTasks, newTask],
+          activityLog: [...state.activityLog, {
+            type: 'task',
+            message: `📋 社区任务上线：${title}${residentAssign ? `（来自事件关联住户）` : ''}`,
+            time: Date.now(),
+          }],
+        }
       }
       return { ...state, tasks: [...state.tasks, newTask] }
     }
@@ -636,10 +654,10 @@ function gameReducer(state, action) {
 
       const dispatchedTasks = []
       if (choice.generateTaskType) {
-        gameReducer(state, { type: 'GENERATE_NEW_TASK', payload: { type: choice.generateTaskType, residentId: state.dailyEvent.targetResident } })
+        dispatchedTasks.push({ type: 'GENERATE_NEW_TASK', payload: { type: choice.generateTaskType, residentId: state.dailyEvent.targetResident, autoAccept: true } })
       }
       if (choice.generateTaskForResident && state.dailyEvent.targetResident) {
-        dispatchedTasks.push({ type: 'GENERATE_NEW_TASK', payload: { residentId: state.dailyEvent.targetResident, type: 'help' } })
+        dispatchedTasks.push({ type: 'GENERATE_NEW_TASK', payload: { residentId: state.dailyEvent.targetResident, type: 'help', autoAccept: true } })
       }
 
       const handledEvent = {
@@ -650,12 +668,34 @@ function gameReducer(state, action) {
         handledAt: Date.now(),
         handledDay: state.day,
         effect: eff,
+        _residentRepBoost: choice.targetResidentRepBoost || 0,
+        _followUpHint: state.dailyEvent.followUp && choice.flag && state.dailyEvent.followUp[choice.flag]
+          ? '明日将出现该事件的后续进展~'
+          : null,
       }
 
       const playerLog = []
       if (eff.reputation !== 0) playerLog.push(`声望${eff.reputation > 0 ? '+' : ''}${eff.reputation}`)
       if (eff.coins !== 0) playerLog.push(`金币${eff.coins > 0 ? '+' : ''}${eff.coins}`)
       if (eff.relationshipBoost !== 0) playerLog.push(`邻里好感${eff.relationshipBoost > 0 ? '+' : ''}${eff.relationshipBoost}`)
+
+      const historyRecord = {
+        id: generateId(),
+        actionType: 'daily_handled',
+        eventId: handledEvent.id,
+        icon: handledEvent.icon,
+        title: handledEvent.title,
+        description: handledEvent.description,
+        day: handledEvent.day || state.day,
+        handledDay: state.day,
+        targetResident: handledEvent.targetResident,
+        chosenChoice: choice.label,
+        chosenFlag: choice.flag,
+        requires: handledEvent.requires,
+        followUp: handledEvent.followUp,
+        effect: eff,
+        _residentRepBoost: choice.targetResidentRepBoost || 0,
+      }
 
       let interimState = {
         ...state,
@@ -667,7 +707,7 @@ function gameReducer(state, action) {
         eventFlags: newEventFlags,
         leaderboard: computeLeaderboard(updatedResidents, state.player),
         posts: [...extraPosts, ...state.posts].slice(0, 60),
-        dailyEventHistory: [...state.dailyEventHistory, { type: 'daily', event: handledEvent }],
+        dailyEventHistory: [...state.dailyEventHistory, historyRecord],
         activityLog: [...state.activityLog, {
           type: eff.reputation >= 0 ? 'event' : 'warning',
           message: `处理事件「${state.dailyEvent.title}」：${choice.label}（${[...playerLog, ...logs].join('，') || '无影响'}）`,
@@ -696,8 +736,18 @@ function gameReducer(state, action) {
         if (prevEvent) {
           if (!prevEvent.handled) {
             updatedEventHistory.push({
-              type: 'daily_expired',
-              event: { ...prevEvent, expired: true, expiredDay: newDay, handled: false },
+              id: generateId(),
+              actionType: 'daily_expired',
+              eventId: prevEvent.id,
+              icon: prevEvent.icon,
+              title: prevEvent.title,
+              description: prevEvent.description,
+              day: prevEvent.day || state.day,
+              expiredDay: newDay,
+              targetResident: prevEvent.targetResident,
+              requires: prevEvent.requires,
+              followUp: prevEvent.followUp,
+              expired: true,
             })
           }
         }

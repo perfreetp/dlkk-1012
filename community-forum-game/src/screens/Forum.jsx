@@ -119,6 +119,7 @@ export default function Forum() {
               sortedPosts.map(post => (
                 <div
                   key={post.id}
+                  id={`forum-post-${post.id}`}
                   className="post-item"
                   style={{
                     border: post.isPenalized
