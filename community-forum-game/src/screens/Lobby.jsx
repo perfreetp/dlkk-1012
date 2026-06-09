@@ -220,6 +220,112 @@ export default function Lobby({ onStart }) {
         </div>
       </div>
 
+      {state.dailyEvent && (
+        <div
+          className={`card daily-event-card ${state.dailyEvent.handled ? 'handled' : 'pulse-border'}`}
+          style={{
+            marginBottom: '20px',
+            background: state.dailyEvent.handled
+              ? 'linear-gradient(135deg, #f0fdf4, #dcfce7)'
+              : 'linear-gradient(135deg, #fef3c7, #fde68a)',
+            border: `2px solid ${state.dailyEvent.handled ? '#22c55e' : '#f59e0b'}`,
+          }}
+        >
+          <div className="flex-between mb-12">
+            <div className="flex gap-12" style={{ alignItems: 'center' }}>
+              <div style={{ fontSize: '2.5rem' }}>{state.dailyEvent.icon}</div>
+              <div>
+                <div style={{ fontSize: '0.8rem', opacity: 0.8, marginBottom: '4px' }}>
+                  🗓️ 第 {state.dailyEvent.day || state.day} 天 · 社区突发事件
+                </div>
+                <h3 style={{ fontSize: '1.2rem', margin: 0 }}>{state.dailyEvent.title}</h3>
+              </div>
+            </div>
+            {state.dailyEvent.handled ? (
+              <span className="badge badge-secondary">✅ 已处理</span>
+            ) : (
+              <span className="badge badge-accent pulse">⭐ 待处理</span>
+            )}
+          </div>
+
+          <p className="text-sm mb-16" style={{ lineHeight: '1.7' }}>{state.dailyEvent.description}</p>
+
+          {state.dailyEvent.handled ? (
+            <div style={{ padding: '12px 14px', background: 'rgba(34,197,94,0.15)', borderRadius: '8px' }}>
+              <div className="text-sm mb-4">
+                <span className="font-bold">您的选择：</span>
+                {state.dailyEvent.chosenChoice}
+              </div>
+              <div className="text-xs" style={{ opacity: 0.9 }}>
+                处理结果：
+                {state.dailyEvent.effect?.reputation !== 0 && (
+                  <span style={{ marginLeft: '6px', color: state.dailyEvent.effect.reputation >= 0 ? '#059669' : '#dc2626' }}>
+                    ⭐声望{state.dailyEvent.effect.reputation > 0 ? '+' : ''}{state.dailyEvent.effect.reputation}
+                  </span>
+                )}
+                {state.dailyEvent.effect?.coins !== 0 && (
+                  <span style={{ marginLeft: '6px', color: state.dailyEvent.effect.coins >= 0 ? '#d97706' : '#dc2626' }}>
+                    🪙金币{state.dailyEvent.effect.coins > 0 ? '+' : ''}{state.dailyEvent.effect.coins}
+                  </span>
+                )}
+                {state.dailyEvent.effect?.relationshipBoost !== 0 && (
+                  <span style={{ marginLeft: '6px', color: state.dailyEvent.effect.relationshipBoost >= 0 ? '#db2777' : '#dc2626' }}>
+                    ❤️好感{state.dailyEvent.effect.relationshipBoost > 0 ? '+' : ''}{state.dailyEvent.effect.relationshipBoost}
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-3 gap-12">
+              {state.dailyEvent.choices.map((choice, idx) => {
+                const eff = choice.effect || {}
+                return (
+                  <button
+                    key={idx}
+                    className="btn daily-event-choice"
+                    style={{
+                      flexDirection: 'column',
+                      padding: '14px 10px',
+                      height: 'auto',
+                      lineHeight: '1.5',
+                      whiteSpace: 'normal',
+                      background: 'white',
+                      border: '2px solid rgba(245,158,11,0.3)',
+                      color: 'inherit',
+                      alignItems: 'stretch',
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                    }}
+                    onClick={() => dispatch({ type: 'HANDLE_DAILY_EVENT', payload: { choiceIndex: idx } })}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.15)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                  >
+                    <div className="text-sm mb-8 font-bold" style={{ textAlign: 'center' }}>{choice.label}</div>
+                    <div className="text-xs text-light" style={{ textAlign: 'center' }}>
+                      {eff.reputation !== 0 && (
+                        <span style={{ marginRight: '4px', color: eff.reputation >= 0 ? '#059669' : '#dc2626' }}>
+                          ⭐{eff.reputation > 0 ? '+' : ''}{eff.reputation}
+                        </span>
+                      )}
+                      {eff.coins !== 0 && (
+                        <span style={{ marginRight: '4px', color: eff.coins >= 0 ? '#d97706' : '#dc2626' }}>
+                          🪙{eff.coins > 0 ? '+' : ''}{eff.coins}
+                        </span>
+                      )}
+                      {eff.relationshipBoost !== 0 && (
+                        <span style={{ color: eff.relationshipBoost >= 0 ? '#db2777' : '#dc2626' }}>
+                          ❤️{eff.relationshipBoost > 0 ? '+' : ''}{eff.relationshipBoost}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-2 gap-16">
         <div className="card">
           <h3 className="card-title">📋 今日概览</h3>

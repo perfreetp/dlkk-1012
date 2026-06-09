@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useGame } from '../context/GameContext'
-import { LIMITED_EVENTS, BUILDINGS } from '../data/gameData'
+import { LIMITED_EVENTS, BUILDINGS, REPORT_HISTORY_TYPES } from '../data/gameData'
 
 export default function AdminPanel() {
   const { state, dispatch } = useGame()
@@ -9,9 +9,11 @@ export default function AdminPanel() {
   const [announceContent, setAnnounceContent] = useState('')
   const [announceType, setAnnounceType] = useState('普通')
   const [selectedReported, setSelectedReported] = useState(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   const reportedPosts = state.posts.filter(p => p.isReported && !p.isPenalized)
   const myPosts = state.posts.filter(p => p.authorId === state.player?.id)
+  const reviewHistory = state.reportHistory || []
 
   const handlePublish = () => {
     if (!announceTitle.trim() || !announceContent.trim()) {
@@ -224,7 +226,7 @@ export default function AdminPanel() {
                               className="btn btn-sm btn-danger"
                               onClick={e => {
                                 e.stopPropagation()
-                                if (confirm('确认对该违规内容扣分处罚？（声望-10）')) {
+                                if (confirm('确认对该违规内容扣分处罚？（作者声望-10，并记入审核历史）')) {
                                   dispatch({ type: 'PENALIZE_POST', payload: post.id })
                                 }
                               }}
@@ -232,16 +234,22 @@ export default function AdminPanel() {
                               🚫 扣分处罚
                             </button>
                             <button
+                              className="btn btn-sm btn-secondary"
+                              onClick={e => {
+                                e.stopPropagation()
+                                dispatch({ type: 'MARK_POST_COMPLIANT', payload: post.id })
+                              }}
+                            >
+                              ✅ 内容合规
+                            </button>
+                            <button
                               className="btn btn-sm btn-outline"
                               onClick={e => {
                                 e.stopPropagation()
-                                alert('已忽略该举报')
-                                const posts = [...state.posts]
-                                const target = posts.find(p => p.id === post.id)
-                                if (target) target.isReported = false
+                                dispatch({ type: 'IGNORE_REPORT', payload: post.id })
                               }}
                             >
-                              ✅ 忽略举报
+                              ⏭️ 忽略举报
                             </button>
                           </div>
                         </div>
@@ -251,23 +259,87 @@ export default function AdminPanel() {
 
                   <div className="divider"></div>
 
-                  <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '12px' }}>
-                    🚫 已处理违规 ({state.heatPenalties})
-                  </h3>
-                  <div className="scroll-container" style={{ maxHeight: '200px' }}>
-                    {state.posts.filter(p => p.isPenalized).length === 0 ? (
-                      <p className="text-sm text-light text-center" style={{ padding: '20px' }}>
-                        暂无已处理的违规记录
-                      </p>
-                    ) : (
-                      state.posts.filter(p => p.isPenalized).map(p => (
-                        <div key={p.id} className="mb-8" style={{ padding: '10px', background: '#fef2f2', borderRadius: '8px', borderLeft: '4px solid var(--danger)' }}>
-                          <div className="font-bold text-sm text-danger">{p.title}</div>
-                          <div className="text-xs text-light">作者: {p.authorName}</div>
-                        </div>
-                      ))
-                    )}
+                  <div className="flex-between mb-12">
+                    <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: 0 }}>
+                      � 审核处理历史 ({reviewHistory.length})
+                    </h3>
+                    <button
+                      className={`btn btn-sm ${showHistory ? 'btn-accent' : 'btn-outline'}`}
+                      onClick={() => setShowHistory(!showHistory)}
+                    >
+                      {showHistory ? '收起详情' : '展开全部'}
+                    </button>
                   </div>
+
+                  {!showHistory ? (
+                    <div className="grid grid-3 gap-12 mb-16">
+                      <div style={{ padding: '14px', background: '#fef2f2', borderRadius: '10px', textAlign: 'center' }}>
+                        <div className="text-danger font-bold" style={{ fontSize: '1.6rem' }}>
+                          {reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.PENALIZED).length}
+                        </div>
+                        <div className="text-xs text-light">扣分处罚</div>
+                      </div>
+                      <div style={{ padding: '14px', background: '#ecfdf5', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.6rem', color: '#059669', fontWeight: 'bold' }}>
+                          {reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.COMPLIANT).length}
+                        </div>
+                        <div className="text-xs text-light">合规通过</div>
+                      </div>
+                      <div style={{ padding: '14px', background: '#eff6ff', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.6rem', color: '#2563eb', fontWeight: 'bold' }}>
+                          {reviewHistory.filter(r => r.action === REPORT_HISTORY_TYPES.IGNORED).length}
+                        </div>
+                        <div className="text-xs text-light">忽略举报</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="scroll-container" style={{ maxHeight: '320px' }}>
+                      {reviewHistory.length === 0 ? (
+                        <p className="text-sm text-light text-center" style={{ padding: '20px' }}>
+                          暂无审核处理记录
+                        </p>
+                      ) : (
+                        reviewHistory.slice().reverse().map(r => (
+                          <div
+                            key={r.id}
+                            className="mb-8"
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: '8px',
+                              borderLeft: '4px solid ' + (
+                                r.action === REPORT_HISTORY_TYPES.PENALIZED ? 'var(--danger)' :
+                                r.action === REPORT_HISTORY_TYPES.COMPLIANT ? 'var(--secondary)' : '#64748b'
+                              ),
+                              background: (
+                                r.action === REPORT_HISTORY_TYPES.PENALIZED ? '#fef2f2' :
+                                r.action === REPORT_HISTORY_TYPES.COMPLIANT ? '#ecfdf5' : '#f1f5f9'
+                              ),
+                            }}
+                          >
+                            <div className="flex-between mb-4">
+                              <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                                <span className={`badge ${
+                                  r.action === REPORT_HISTORY_TYPES.PENALIZED ? 'badge-danger' :
+                                  r.action === REPORT_HISTORY_TYPES.COMPLIANT ? 'badge-secondary' : 'badge-primary'
+                                }`} style={{ fontSize: '0.7rem' }}>
+                                  {r.action === REPORT_HISTORY_TYPES.PENALIZED ? '🚫 扣分' :
+                                   r.action === REPORT_HISTORY_TYPES.COMPLIANT ? '✅ 合规' : '⏭️ 忽略'}
+                                </span>
+                                <span className="font-bold text-sm">{r.postTitle}</span>
+                              </div>
+                              <span className="text-xs text-light">
+                                {new Date(r.handledAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="text-xs text-light">
+                              作者: {r.postAuthor} · 处理人: {r.handledBy}
+                              {r.penalty && <span className="text-danger" style={{ marginLeft: '8px' }}>声望{r.penalty}</span>}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -519,14 +591,24 @@ export default function AdminPanel() {
                 返回
               </button>
               <button
-                className="btn btn-outline"
+                className="btn btn-secondary"
                 style={{ flex: 1 }}
                 onClick={() => {
-                  alert('内容合规，忽略举报')
+                  dispatch({ type: 'MARK_POST_COMPLIANT', payload: selectedReported.id })
                   setSelectedReported(null)
                 }}
               >
                 ✅ 内容合规
+              </button>
+              <button
+                className="btn btn-outline"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  dispatch({ type: 'IGNORE_REPORT', payload: selectedReported.id })
+                  setSelectedReported(null)
+                }}
+              >
+                ⏭️ 忽略举报
               </button>
               <button
                 className="btn btn-danger"

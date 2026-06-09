@@ -62,3 +62,100 @@ export const LIMITED_EVENTS = [
   { id: 2, name: '端午包粽子活动', icon: '🍙', duration: 240, description: '社区食堂组织包粽子活动，邻里齐动手', reward: { reputation: 80, coins: 150 } },
   { id: 3, name: '中秋赏月晚会', icon: '🌕', duration: 300, description: '花园广场赏月、吃月饼、猜灯谜', reward: { reputation: 120, coins: 250 } },
 ]
+
+export const DAILY_EVENTS = [
+  {
+    id: 'water_shutdown',
+    icon: '🚰',
+    title: '突发停水通知',
+    description: '物业通知：因水管维修，今天下午2-6点小区将临时停水，请邻居们提前做好储水准备。',
+    choices: [
+      { label: '📢 在论坛发帖提醒邻居', effect: { reputation: 8, coins: 0, relationshipBoost: 3 } },
+      { label: '🛒 帮张奶奶家储水', effect: { reputation: 15, coins: 10, relationshipBoost: 8 } },
+      { label: '😐 默默自己储水就行', effect: { reputation: 0, coins: 0, relationshipBoost: 0 } },
+    ],
+  },
+  {
+    id: 'noise_complaint',
+    icon: '🔊',
+    title: '深夜噪音投诉',
+    description: '3号楼有邻居反映，深夜11点多还有人在家大声唱歌，影响孩子休息和老人睡眠。',
+    choices: [
+      { label: '🤝 主动上楼协调沟通', effect: { reputation: 20, coins: 5, relationshipBoost: -2 } },
+      { label: '📞 联系物业处理', effect: { reputation: 5, coins: 0, relationshipBoost: 0 } },
+      { label: '🎧 自己戴上耳塞忍忍', effect: { reputation: 0, coins: 0, relationshipBoost: 0 } },
+    ],
+  },
+  {
+    id: 'flea_market_preheat',
+    icon: '🛍️',
+    title: '跳蚤市场预热',
+    description: '本周六小区广场将举办月度跳蚤市场，邻居们可以摆摊出售闲置物品或以物换物。',
+    choices: [
+      { label: '🎪 报名摆摊卖旧书', effect: { reputation: 10, coins: 40, relationshipBoost: 2 } },
+      { label: '📣 帮物业宣传活动', effect: { reputation: 15, coins: 10, relationshipBoost: 4 } },
+      { label: '👀 当天随便逛逛', effect: { reputation: 2, coins: 0, relationshipBoost: 1 } },
+    ],
+  },
+  {
+    id: 'lost_pet',
+    icon: '🐱',
+    title: '寻找丢失宠物',
+    description: '5号楼李阿姨家的橘猫「团子」今早溜出门不见了，李阿姨急得饭都吃不下。',
+    choices: [
+      { label: '🔍 组织邻居一起帮忙找', effect: { reputation: 25, coins: 15, relationshipBoost: 10 } },
+      { label: '📱 在业主群发寻猫启事', effect: { reputation: 8, coins: 0, relationshipBoost: 3 } },
+      { label: '🙏 希望它自己能回来', effect: { reputation: 0, coins: 0, relationshipBoost: 0 } },
+    ],
+  },
+  {
+    id: 'package_misdelivered',
+    icon: '📦',
+    title: '快递错拿事件',
+    description: '快递柜里有个邻居的快递被错拿了，业主群里正在问有没有人看到，快递里是急用的药品。',
+    choices: [
+      { label: '🚶 下楼去快递柜帮忙查监控', effect: { reputation: 18, coins: 8, relationshipBoost: 6 } },
+      { label: '💬 群里帮忙扩散询问', effect: { reputation: 5, coins: 0, relationshipBoost: 2 } },
+      { label: '🤷 不是我拿的不管了', effect: { reputation: -3, coins: 0, relationshipBoost: -1 } },
+    ],
+  },
+  {
+    id: 'community_dinner',
+    icon: '🍲',
+    title: '百家宴活动报名',
+    description: '中秋临近，物业计划组织小区百家宴，每户出一道菜，大家一起在花园广场聚餐赏月。',
+    choices: [
+      { label: '🍳 报名出拿手好菜', effect: { reputation: 20, coins: 5, relationshipBoost: 8 } },
+      { label: '🎤 报名表演才艺节目', effect: { reputation: 15, coins: 10, relationshipBoost: 5 } },
+      { label: '🍽️ 当天去吃就行', effect: { reputation: 3, coins: 0, relationshipBoost: 1 } },
+    ],
+  },
+  {
+    id: 'elderly_help',
+    icon: '👵',
+    title: '独居老人求助',
+    description: '70多岁独居的王奶奶说家里灯泡坏了，儿女都在外地，想找个邻居帮忙换一下。',
+    choices: [
+      { label: '🔧 立刻带工具上门帮忙', effect: { reputation: 22, coins: 12, relationshipBoost: 10 } },
+      { label: '📞 联系物业维修工上门', effect: { reputation: 5, coins: 0, relationshipBoost: 2 } },
+      { label: '⏳ 最近太忙先等等', effect: { reputation: -2, coins: 0, relationshipBoost: -2 } },
+    ],
+  },
+  {
+    id: 'greening_activity',
+    icon: '🌱',
+    title: '小区植树活动',
+    description: '春天到了，业委会组织周末在小区空地上种桂花树，美化环境造福大家。',
+    choices: [
+      { label: '🌳 报名参与种植并捐苗', effect: { reputation: 25, coins: 5, relationshipBoost: 6 } },
+      { label: '💧 活动后帮忙浇水养护', effect: { reputation: 12, coins: 5, relationshipBoost: 4 } },
+      { label: '👏 精神上支持一下', effect: { reputation: 1, coins: 0, relationshipBoost: 0 } },
+    ],
+  },
+]
+
+export const REPORT_HISTORY_TYPES = {
+  PENALIZED: 'penalized',
+  IGNORED: 'ignored',
+  COMPLIANT: 'compliant',
+}

@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react'
-import { BUILDINGS, INITIAL_TASKS, DECORATIONS, ACHIEVEMENTS, FACILITIES, NPC_NAMES, RANDOM_POST_TOPICS, LIMITED_EVENTS } from '../data/gameData'
+import { BUILDINGS, INITIAL_TASKS, DECORATIONS, ACHIEVEMENTS, FACILITIES, NPC_NAMES, RANDOM_POST_TOPICS, LIMITED_EVENTS, AVATARS, DAILY_EVENTS, REPORT_HISTORY_TYPES } from '../data/gameData'
 
 const GameContext = createContext()
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
 const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)]
+
+const cloneDeep = (obj) => {
+  try {
+    return JSON.parse(JSON.stringify(obj))
+  } catch {
+    return obj
+  }
+}
 
 const initialState = {
   gameStarted: false,
@@ -14,7 +22,7 @@ const initialState = {
   reputation: 0,
   coins: 100,
   posts: [],
-  tasks: [...INITIAL_TASKS],
+  tasks: [...INITIAL_TASKS].map(t => ({ ...t, id: t.id || generateId() })),
   activeTasks: [],
   completedTasks: [],
   inventory: [],
@@ -22,7 +30,7 @@ const initialState = {
   leaderboard: [],
   relationships: {},
   achievements: [],
-  facilities: [...FACILITIES],
+  facilities: [...FACILITIES].map(f => ({ ...f })),
   limitedEvent: null,
   activityLog: [],
   day: 1,
@@ -34,6 +42,10 @@ const initialState = {
   totalPatrols: 0,
   totalMarketTrades: 0,
   heatPenalties: 0,
+  reportHistory: [],
+  dailyEvent: null,
+  dailyEventHistory: [],
+  _savedAt: null,
 }
 
 function gameReducer(state, action) {
@@ -60,12 +72,18 @@ function gameReducer(state, action) {
         relationships[npc] = Math.floor(Math.random() * 30) + 20
       })
       const initialAchievements = [{ ...ACHIEVEMENTS[0], unlockedAt: Date.now() }]
+      const firstDailyEvent = state.day === 1 ? {
+        ...cloneDeep(getRandomElement(DAILY_EVENTS)),
+        triggeredAt: Date.now(),
+        handled: false,
+      } : null
       return {
         ...state,
         player,
         relationships,
         achievements: initialAchievements,
         reputation: 20,
+        dailyEvent: firstDailyEvent,
         activityLog: [...state.activityLog, { type: 'system', message: `${name} 加入了 ${building?.name}！`, time: Date.now() }],
       }
     }
@@ -81,6 +99,7 @@ function gameReducer(state, action) {
         comments: [],
         heat: 0,
         isReported: false,
+        reportCount: 0,
         createdAt: Date.now(),
       }
       const newRelationships = { ...state.relationships }
@@ -131,26 +150,100 @@ function gameReducer(state, action) {
     case 'REPORT_POST': {
       const posts = state.posts.map(p => {
         if (p.id === action.payload) {
-          return { ...p, isReported: true, heat: Math.max(0, p.heat - 20) }
+          return {
+            ...p,
+            isReported: true,
+            reportCount: (p.reportCount || 0) + 1,
+            heat: Math.max(0, p.heat - 20),
+            reportedAt: Date.now(),
+          }
         }
         return p
       })
       return { ...state, posts }
     }
 
-    case 'PENALIZE_POST': {
+    case 'IGNORE_REPORT': {
       const posts = state.posts.map(p => {
         if (p.id === action.payload) {
-          return { ...p, isPenalized: true, heat: 0 }
+          return { ...p, isReported: false, _reviewIgnored: true }
         }
         return p
       })
+      const post = state.posts.find(p => p.id === action.payload)
+      return {
+        ...state,
+        posts,
+        reportHistory: [
+          ...state.reportHistory,
+          {
+            id: generateId(),
+            postId: action.payload,
+            postTitle: post?.title || '未知帖子',
+            postAuthor: post?.authorName || '未知作者',
+            action: REPORT_HISTORY_TYPES.IGNORED,
+            handledAt: Date.now(),
+            handledBy: state.player?.name || '管理员',
+          },
+        ],
+        activityLog: [...state.activityLog, { type: 'admin', message: `管理员忽略了帖子举报：${post?.title}`, time: Date.now() }],
+      }
+    }
+
+    case 'MARK_POST_COMPLIANT': {
+      const posts = state.posts.map(p => {
+        if (p.id === action.payload) {
+          return { ...p, isReported: false, _reviewCompliant: true }
+        }
+        return p
+      })
+      const post = state.posts.find(p => p.id === action.payload)
+      return {
+        ...state,
+        posts,
+        reportHistory: [
+          ...state.reportHistory,
+          {
+            id: generateId(),
+            postId: action.payload,
+            postTitle: post?.title || '未知帖子',
+            postAuthor: post?.authorName || '未知作者',
+            action: REPORT_HISTORY_TYPES.COMPLIANT,
+            handledAt: Date.now(),
+            handledBy: state.player?.name || '管理员',
+          },
+        ],
+        activityLog: [...state.activityLog, { type: 'admin', message: `管理员审核通过帖子：${post?.title}`, time: Date.now() }],
+      }
+    }
+
+    case 'PENALIZE_POST': {
+      const posts = state.posts.map(p => {
+        if (p.id === action.payload) {
+          return { ...p, isPenalized: true, isReported: false, heat: 0, penalizedAt: Date.now() }
+        }
+        return p
+      })
+      const post = state.posts.find(p => p.id === action.payload)
       return {
         ...state,
         posts,
         reputation: Math.max(0, state.reputation - 10),
         heatPenalties: state.heatPenalties + 1,
-        activityLog: [...state.activityLog, { type: 'warning', message: '发布了违规内容，声望-10', time: Date.now() }],
+        reportHistory: [
+          ...state.reportHistory,
+          {
+            id: generateId(),
+            postId: action.payload,
+            postTitle: post?.title || '未知帖子',
+            postAuthor: post?.authorName || '未知作者',
+            action: REPORT_HISTORY_TYPES.PENALIZED,
+            penalty: -10,
+            handledAt: Date.now(),
+            handledBy: state.player?.name || '管理员',
+          },
+        ],
+        activityLog: [...state.activityLog, { type: 'warning', message: `管理员对违规内容扣分：${post?.title}（声望-10）`, time: Date.now() }],
       }
     }
 
@@ -222,13 +315,16 @@ function gameReducer(state, action) {
     }
 
     case 'GENERATE_NEW_TASK': {
+      if (state.tasks.length >= 12) return state
       const newTask = {
-        id: Date.now(),
+        id: generateId(),
         ...getRandomElement([
-          { type: 'help', title: `帮${getRandomElement(NPC_NAMES)}${getRandomElement(['送东西', '照看宠物', '浇花', '搬重物'])}`, description: '邻居有事需要帮忙', reward: { reputation: 10 + Math.floor(Math.random() * 20), coins: 15 + Math.floor(Math.random() * 20) }, timeLimit: 300 + Math.floor(Math.random() * 600) },
-          { type: 'market', title: `跳蚤市场 - 出售${getRandomElement(['闲置电器', '儿童玩具', '手工艺品', '旧衣物'])}`, description: '周末跳蚤市场活动', reward: { reputation: 10 + Math.floor(Math.random() * 10), coins: 30 + Math.floor(Math.random() * 40) }, timeLimit: 1800 },
-          { type: 'dispute', title: '处理邻里纠纷', description: '协调解决住户之间的小矛盾', reward: { reputation: 25 + Math.floor(Math.random() * 15), coins: 25 + Math.floor(Math.random() * 15) }, timeLimit: 600 + Math.floor(Math.random() * 300) },
+          { type: 'help', title: `帮${getRandomElement(NPC_NAMES)}${getRandomElement(['送东西', '照看宠物', '浇花', '搬重物', '取快递', '代买东西'])}`, description: '邻居有事需要帮忙，希望热心住户能搭把手', reward: { reputation: 10 + Math.floor(Math.random() * 20), coins: 15 + Math.floor(Math.random() * 20) }, timeLimit: 300 + Math.floor(Math.random() * 600) },
+          { type: 'market', title: `跳蚤市场 - 出售${getRandomElement(['闲置电器', '儿童玩具', '手工艺品', '旧衣物', '书籍文具', '家居用品'])}`, description: '周末跳蚤市场又要开啦，把闲置物品拿出来换点零花钱吧', reward: { reputation: 10 + Math.floor(Math.random() * 10), coins: 30 + Math.floor(Math.random() * 40) }, timeLimit: 1800 },
+          { type: 'dispute', title: `处理${getRandomElement(['噪音', '宠物', '车位', '电梯', '垃圾'])}纠纷`, description: '邻居之间出现了小摩擦，需要有人出面协调解决', reward: { reputation: 25 + Math.floor(Math.random() * 15), coins: 25 + Math.floor(Math.random() * 15) }, timeLimit: 600 + Math.floor(Math.random() * 300) },
+          { type: 'help', title: `协助${getRandomElement(['社区核酸采样', '老年活动', '儿童托管', '快递分拣', '垃圾分类'])}`, description: '社区临时需要志愿者协助，有时间的邻居可以报名', reward: { reputation: 18 + Math.floor(Math.random() * 12), coins: 12 + Math.floor(Math.random() * 18) }, timeLimit: 900 + Math.floor(Math.random() * 300) },
         ]),
+        generatedAt: Date.now(),
       }
       return {
         ...state,
@@ -286,7 +382,7 @@ function gameReducer(state, action) {
     case 'START_LIMITED_EVENT': {
       return {
         ...state,
-        limitedEvent: { ...action.payload, startedAt: Date.now() },
+        limitedEvent: { ...action.payload, startedAt: Date.now(), progress: 0 },
         activityLog: [...state.activityLog, { type: 'event', message: `参加限时活动：${action.payload.name}`, time: Date.now() }],
       }
     }
@@ -294,12 +390,14 @@ function gameReducer(state, action) {
     case 'COMPLETE_LIMITED_EVENT': {
       if (!state.limitedEvent) return state
       const reward = state.limitedEvent.reward
+      const finishedEvent = { ...state.limitedEvent, completedAt: Date.now() }
       return {
         ...state,
         limitedEvent: null,
         reputation: state.reputation + reward.reputation,
         coins: state.coins + reward.coins,
-        activityLog: [...state.activityLog, { type: 'success', message: `完成限时活动：声望+${reward.reputation}，金币+${reward.coins}`, time: Date.now() }],
+        dailyEventHistory: [...state.dailyEventHistory, { type: 'limited', event: finishedEvent }],
+        activityLog: [...state.activityLog, { type: 'success', message: `完成限时活动「${finishedEvent.name}」：声望+${reward.reputation}，金币+${reward.coins}`, time: Date.now() }],
       }
     }
 
@@ -318,54 +416,229 @@ function gameReducer(state, action) {
     case 'SET_ADMIN':
       return { ...state, isAdmin: action.payload }
 
-    case 'NEXT_DAY': {
-      const posts = state.posts.map(p => ({
-        ...p,
-        heat: Math.max(0, p.heat - Math.floor(p.heat * 0.2)),
-      }))
-      const newPosts = []
-      for (let i = 0; i < 2; i++) {
-        const topic = getRandomElement(RANDOM_POST_TOPICS)
-        const npcName = getRandomElement(NPC_NAMES)
-        newPosts.push({
-          id: generateId(),
-          authorId: 'npc_' + i,
-          authorName: npcName,
-          authorAvatar: getRandomElement(AVATARS),
-          ...topic,
-          likes: Math.floor(Math.random() * 30),
-          comments: Array(Math.floor(Math.random() * 5)).fill(null).map(() => ({
-            id: generateId(),
-            author: getRandomElement(NPC_NAMES),
-            avatar: getRandomElement(AVATARS),
-            content: getRandomElement(['写得真好！', '我也这么觉得', '哈哈哈哈', '有道理', '+1']),
-            time: Date.now(),
-          })),
-          heat: Math.floor(Math.random() * 50),
-          isReported: false,
-          createdAt: Date.now(),
+    case 'HANDLE_DAILY_EVENT': {
+      if (!state.dailyEvent || state.dailyEvent.handled) return state
+      const { choiceIndex } = action.payload
+      const choice = state.dailyEvent.choices[choiceIndex]
+      if (!choice) return state
+
+      const eff = choice.effect || { reputation: 0, coins: 0, relationshipBoost: 0 }
+      const newRelationships = { ...state.relationships }
+      if (eff.relationshipBoost) {
+        Object.keys(newRelationships).forEach(npc => {
+          newRelationships[npc] = Math.max(0, Math.min(100, newRelationships[npc] + eff.relationshipBoost))
         })
       }
+      const handledEvent = {
+        ...state.dailyEvent,
+        handled: true,
+        chosenChoice: choice.label,
+        handledAt: Date.now(),
+        effect: eff,
+      }
+
+      const logMessages = []
+      if (eff.reputation !== 0) logMessages.push(`声望${eff.reputation > 0 ? '+' : ''}${eff.reputation}`)
+      if (eff.coins !== 0) logMessages.push(`金币${eff.coins > 0 ? '+' : ''}${eff.coins}`)
+      if (eff.relationshipBoost !== 0) logMessages.push(`好感度${eff.relationshipBoost > 0 ? '+' : ''}${eff.relationshipBoost}`)
+
       return {
         ...state,
-        day: state.day + 1,
-        posts: [...newPosts, ...posts].slice(0, 50),
-        activityLog: [...state.activityLog, { type: 'system', message: `=== 第 ${state.day + 1} 天 ===`, time: Date.now() }],
+        dailyEvent: handledEvent,
+        reputation: Math.max(0, state.reputation + eff.reputation),
+        coins: Math.max(0, state.coins + eff.coins),
+        relationships: newRelationships,
+        dailyEventHistory: [...state.dailyEventHistory, { type: 'daily', event: handledEvent }],
+        activityLog: [...state.activityLog, {
+          type: eff.reputation >= 0 ? 'success' : 'warning',
+          message: `处理事件「${state.dailyEvent.title}」：${choice.label}（${logMessages.join('，') || '无影响'}）`,
+          time: Date.now(),
+        }],
+      }
+    }
+
+    case 'NEXT_DAY': {
+      try {
+        const newDay = state.day + 1
+
+        // 1. 热度衰减（已有帖子）
+        const posts = state.posts.map(p => ({
+          ...p,
+          heat: Math.max(0, Math.floor(p.heat * 0.75)),
+        }))
+
+        // 2. 生成 2-3 条邻居新帖子
+        const newPostCount = 2 + Math.floor(Math.random() * 2)
+        const newPosts = []
+        const usedNpcs = new Set()
+        for (let i = 0; i < newPostCount; i++) {
+          let npcName = getRandomElement(NPC_NAMES)
+          let attempts = 0
+          while (usedNpcs.has(npcName) && attempts < 5) {
+            npcName = getRandomElement(NPC_NAMES)
+            attempts++
+          }
+          usedNpcs.add(npcName)
+
+          const topic = getRandomElement(RANDOM_POST_TOPICS)
+          const commentCount = Math.floor(Math.random() * 5)
+          const newComments = []
+          for (let c = 0; c < commentCount; c++) {
+            newComments.push({
+              id: generateId(),
+              author: getRandomElement(NPC_NAMES),
+              avatar: getRandomElement(AVATARS),
+              content: getRandomElement(['写得真好！', '我也这么觉得', '哈哈哈哈', '有道理', '+1', '谢谢分享', '太有用了', '我也遇到过']),
+              time: Date.now() - Math.floor(Math.random() * 3600000),
+            })
+          }
+
+          const maybeReported = Math.random() < 0.15
+          newPosts.push({
+            id: generateId(),
+            authorId: 'npc_' + generateId(),
+            authorName: npcName,
+            authorAvatar: getRandomElement(AVATARS),
+            ...topic,
+            likes: Math.floor(Math.random() * 40),
+            comments: newComments,
+            heat: Math.floor(Math.random() * 60) + 10,
+            isReported: maybeReported,
+            reportCount: maybeReported ? 1 + Math.floor(Math.random() * 3) : 0,
+            reportedAt: maybeReported ? Date.now() - 1800000 : null,
+            createdAt: Date.now() - Math.floor(Math.random() * 7200000),
+          })
+        }
+
+        // 3. 生成 2-4 个新任务（确保任务池不枯竭）
+        const newTaskCount = 2 + Math.floor(Math.random() * 3)
+        const newTasks = []
+        for (let i = 0; i < newTaskCount; i++) {
+          newTasks.push({
+            id: generateId(),
+            ...getRandomElement([
+              { type: 'help', title: `帮${getRandomElement(NPC_NAMES)}${getRandomElement(['送东西', '照看宠物', '浇花', '搬重物', '取快递'])}`, description: '邻居有事需要帮忙，热心住户可以联系', reward: { reputation: 10 + Math.floor(Math.random() * 20), coins: 15 + Math.floor(Math.random() * 20) }, timeLimit: 300 + Math.floor(Math.random() * 600) },
+              { type: 'market', title: `跳蚤市场 - 出售${getRandomElement(['闲置电器', '儿童玩具', '手工艺品', '旧衣物'])}`, description: '周末跳蚤市场活动报名中', reward: { reputation: 10 + Math.floor(Math.random() * 10), coins: 30 + Math.floor(Math.random() * 40) }, timeLimit: 1800 },
+              { type: 'dispute', title: '处理邻里纠纷', description: '协调解决住户之间的小矛盾', reward: { reputation: 25 + Math.floor(Math.random() * 15), coins: 25 + Math.floor(Math.random() * 15) }, timeLimit: 600 + Math.floor(Math.random() * 300) },
+              { type: 'patrol', title: '组队安全巡逻', description: '和邻居一起在小区进行安全巡逻（建议组队）', reward: { reputation: 35 + Math.floor(Math.random() * 15), coins: 35 + Math.floor(Math.random() * 15) }, timeLimit: 3600, requireTeam: Math.random() < 0.4 },
+            ]),
+            generatedAt: Date.now(),
+          })
+        }
+
+        // 4. 合并任务列表（去重）
+        const existingTaskIds = new Set(state.tasks.map(t => t.id))
+        const mergedTasks = [...state.tasks, ...newTasks.filter(t => !existingTaskIds.has(t.id))]
+
+        // 5. 进行中的任务：进度小幅推进
+        const progressedActiveTasks = state.activeTasks.map(t => ({
+          ...t,
+          progress: Math.min(100, (t.progress || 0) + 15 + Math.floor(Math.random() * 20)),
+        }))
+
+        // 6. 触发新的每日随机事件（如果上一个已处理或没有）
+        const prevEventDone = !state.dailyEvent || state.dailyEvent.handled
+        let newDailyEvent = state.dailyEvent
+        if (prevEventDone) {
+          const availableEvents = DAILY_EVENTS.filter(e =>
+            !state.dailyEventHistory.slice(-5).some(h => h.event?.id === e.id)
+          )
+          const pickFrom = availableEvents.length > 0 ? availableEvents : DAILY_EVENTS
+          newDailyEvent = {
+            ...cloneDeep(getRandomElement(pickFrom)),
+            day: newDay,
+            triggeredAt: Date.now(),
+            handled: false,
+          }
+        }
+
+        // 7. 新一天日志
+        const newLogs = [
+          { type: 'system', message: `━━━━━ 第 ${newDay} 天开始 ━━━━━`, time: Date.now() },
+        ]
+        if (newPosts.length > 0) {
+          newLogs.push({ type: 'post', message: `邻居们发布了 ${newPosts.length} 条新帖子`, time: Date.now() + 1 })
+        }
+        if (newTasks.length > 0) {
+          newLogs.push({ type: 'task', message: `小区发布了 ${newTasks.length} 个新任务`, time: Date.now() + 2 })
+        }
+
+        return {
+          ...state,
+          day: newDay,
+          posts: [...newPosts, ...posts].slice(0, 60),
+          tasks: mergedTasks.slice(0, 15),
+          activeTasks: progressedActiveTasks,
+          dailyEvent: newDailyEvent,
+          activityLog: [...state.activityLog, ...newLogs].slice(-200),
+        }
+      } catch (e) {
+        console.error('NEXT_DAY error:', e)
+        return {
+          ...state,
+          day: state.day + 1,
+          activityLog: [...state.activityLog, { type: 'warning', message: `进入第 ${state.day + 1} 天`, time: Date.now() }],
+        }
       }
     }
 
     case 'SAVE_GAME': {
-      localStorage.setItem('community_forum_save', JSON.stringify(state))
-      return {
-        ...state,
-        activityLog: [...state.activityLog, { type: 'system', message: '游戏已保存', time: Date.now() }],
+      try {
+        const stateToSave = {
+          ...state,
+          _savedAt: Date.now(),
+          _version: 2,
+        }
+        localStorage.setItem('community_forum_save', JSON.stringify(stateToSave))
+        return {
+          ...state,
+          _savedAt: stateToSave._savedAt,
+          activityLog: [...state.activityLog, { type: 'system', message: '💾 游戏进度已保存', time: Date.now() }],
+        }
+      } catch (e) {
+        console.error('SAVE_GAME error:', e)
+        return state
       }
     }
 
     case 'LOAD_GAME': {
-      const saved = localStorage.getItem('community_forum_save')
-      if (!saved) return state
-      return { ...JSON.parse(saved) }
+      try {
+        const saved = localStorage.getItem('community_forum_save')
+        if (!saved) return state
+        const parsed = JSON.parse(saved)
+        const merged = {
+          ...initialState,
+          ...parsed,
+          tasks: Array.isArray(parsed.tasks) && parsed.tasks.length > 0 ? parsed.tasks : [...INITIAL_TASKS],
+          posts: Array.isArray(parsed.posts) ? parsed.posts : [],
+          activityLog: Array.isArray(parsed.activityLog) ? parsed.activityLog : [],
+          achievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
+          reportHistory: Array.isArray(parsed.reportHistory) ? parsed.reportHistory : [],
+          dailyEventHistory: Array.isArray(parsed.dailyEventHistory) ? parsed.dailyEventHistory : [],
+          facilities: Array.isArray(parsed.facilities) && parsed.facilities.length > 0
+            ? parsed.facilities.map((f, i) => ({ ...FACILITIES[i], votes: f.votes || 0 }))
+            : [...FACILITIES],
+          currentScreen: parsed.currentScreen || 'lobby',
+        }
+        if (!merged.dailyEvent || merged.dailyEvent?.handled) {
+          const freshEvent = {
+            ...cloneDeep(getRandomElement(DAILY_EVENTS)),
+            triggeredAt: Date.now(),
+            handled: false,
+          }
+          merged.dailyEvent = freshEvent
+        }
+        return {
+          ...merged,
+          activityLog: [
+            ...merged.activityLog,
+            { type: 'system', message: `📂 已读取存档（第${merged.day}天）`, time: Date.now() },
+          ].slice(-200),
+        }
+      } catch (e) {
+        console.error('LOAD_GAME error:', e)
+        return state
+      }
     }
 
     case 'SHARE_RESULT':
@@ -383,10 +656,14 @@ export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(gameReducer, initialState)
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      dispatch({ type: 'GENERATE_NEW_TASK' })
-    }, 60000)
-    return () => clearInterval(interval)
+    try {
+      const interval = setInterval(() => {
+        dispatch({ type: 'GENERATE_NEW_TASK' })
+      }, 45000)
+      return () => clearInterval(interval)
+    } catch (e) {
+      console.error('Task generator error:', e)
+    }
   }, [])
 
   return (
